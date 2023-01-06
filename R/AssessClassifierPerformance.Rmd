@@ -1,0 +1,71 @@
+---
+title: "AssessClassifierPerformance"
+author: "Lukas von Ziegler"
+date: '2022-09-29'
+output: html_document
+---
+
+## Assessing performance of kmeans classifiers
+
+```{r}
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+source("DLCAnalyzer_Functions_v4.R")
+```
+
+
+```{r}
+ts_all <- readRDS("../data/Original_Clusters.rds")
+kfold <- 10
+ks <- 1:length(ts_all) %% kfold
+
+evals <- readRDS("../data/TransferEvaluation.Rds")
+
+for(k in unique(ks)[length(evals)+1 - 30]){
+  ts <- ts_all[!(ks %in% k)]
+  ts_val <- ts_all[ks %in% k]
+  for(i in "kmeans.100"){
+    print(paste("creating training set for:",i, k, sep = " "))
+    for(j in names(ts)){
+      ts[[j]] <-  CreateTrainingSet(ts[[j]], integration_period = 15, label.group = i)
+    }
+    print(paste("creating evaluation set for:",i, k, sep = " "))
+    for(j in names(ts_val)){
+      ts_val[[j]] <- CreateTrainingSet(ts_val[[j]], integration_period = 15, label.group = i) 
+    }
+  
+    MLData <- CombineTrainingsData(ts,shuffle = TRUE)
+
+  #initialize model
+  model <- keras_model_sequential() 
+  model %>% 
+    layer_dense(units = 1024, activation = 'relu', input_shape = c(MLData$parameters$N_input),kernel_regularizer = regularizer_l2(l = 0)) %>% 
+    layer_dropout(rate = 0.4) %>% 
+    layer_dense(units = MLData$parameters$N_features, activation = 'softmax')
+
+  #define optimizer
+  model %>% compile(
+    loss = 'categorical_crossentropy',
+    optimizer = optimizer_rmsprop(),
+    metrics = c('accuracy')
+  )
+
+#train model
+  history <- model %>% fit(
+    MLData$train_x, MLData$train_y, 
+    epochs = 20, batch_size = 512, 
+    validation_split = 0
+)
+    for(j in names(ts_val)){
+      ts_val[[j]] <- ClassifyBehaviors(ts_val[[j]], model, MLData$parameters) 
+    }
+  evals[[paste(k,i, sep = " ")]] <- EvaluateClassification(ts_val, truth = i, compare = "classifications")
+  saveRDS(evals,"../data/TransferEvaluation.Rds")
+  rm(ts)
+  rm(ts_val)
+  rm(MLData)
+  if(length(evals) < 40){
+    .rs.restartR()
+  }
+  }
+}
+```

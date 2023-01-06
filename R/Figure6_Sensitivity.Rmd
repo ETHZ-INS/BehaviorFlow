@@ -1,0 +1,393 @@
+---
+title: "Figure6_Sensitivity"
+author: "Lukas von Ziegler"
+date: '2022-06-01'
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+required libraries
+
+```{r, message=FALSE, warning = FALSE}
+source("UnsupervisedAnalysis_Functions.R")
+library(ggplot2)
+library(circlize)
+library(cowplot)
+library(pracma)
+library(circlize)
+library(tidyr)
+set.seed(123)
+```
+
+# Loading the data
+
+We load the data for the unsupervised analysis object that we produced using kmeans clustering and added BSOID to
+
+```{r}
+US <- readRDS("../data/USData_transfer.rds")
+```
+
+# Figure 6
+
+# Figure 6 A/B "Classical" vs Cluster/Transition stats
+
+```{r, fig.width= 4.5, fig.height=3}
+dat <- readRDS("../data/CSI_Sensitivity_50sim_classical.rds")
+dat$classical.top.p.nadj <- dat$classical.top.p / 4
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#select the ps to plot
+#select <- c("n_animals","n_sim","kmeans.25.topclust.FDR","kmeans.25.toptrans.FDR","BSOID.27.topclust.FDR","BSOID.27.toptrans.FDR","classical.top.p")
+#dat <- dat[,select]
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.topclust.FDR","kmeans.25.toptrans.FDR","classical.top.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("black","#3A46BF","#C44523")) +
+  scale_fill_manual(values = c("black","#3A46BF","#C44523")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("Group Size")
+
+
+p2 <- ggplot(means[means$Group.1 %in% c("kmeans.25.topclust.p","kmeans.25.toptrans.p","classical.top.p.nadj"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("black","#3A46BF","#C44523")) +
+  scale_fill_manual(values = c("black","#3A46BF","#C44523")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("Group Size") + 
+  scale_y_continuous(limits = c(0,6))
+
+print(p1)
+print(p2)
+
+
+pdf("../Plots/Figure6_A_classicalvsClusters.pdf", height = 3, width = 4.5)
+print(p1)
+dev.off()
+
+
+pdf("../Plots/Figure6_B_classicalvsClusters_rawP.pdf", height = 3, width = 4.3)
+print(p2)
+dev.off()
+```
+
+# Figure 6 C sensitivity matstats kmeans vs BSOID in CSI
+
+```{r,fig.width= 4.3, fig.height=3}
+dat <- readRDS("../data/CSI_Sensitivity_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+means_CSI <- means
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","BSOID.27.matstats.p","classical.top.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("#72ad3a","grey","black","#9557bf")) +
+  scale_fill_manual(values = c("#72ad3a","grey","black","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+
+
+print(p1)
+
+pdf("../Plots/Figure6_C_CSIBsoidvsKmeans.pdf", height = 3, width = 4.3)
+print(p1)
+dev.off()
+```
+
+# Figure 6 D sensitivity matstats kmeans vs BSOID in FST
+
+```{r,fig.width= 4.5, fig.height=3}
+dat <- readRDS("../data/FST_Sensitivity_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","BSOID.27.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("#72ad3a","black","#9557bf")) +
+  scale_fill_manual(values = c("#72ad3a","black","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+
+
+print(p1)
+
+pdf("../Plots/Figure6_D_FSTBsoidvsKmeans.pdf", height = 3, width = 4.3)
+print(p1)
+dev.off()
+```
+
+
+# Figure 6 E/F effects of more kmeans clusters on sensitivity
+
+```{r,fig.width= 4.3, fig.height=3}
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","kmeans.50.matstats.p","kmeans.100.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  scale_fill_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+p1
+
+p2 <- ggplot(means_CSI[means_CSI$Group.1 %in% c("kmeans.25.matstats.p","kmeans.50.matstats.p","kmeans.100.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  scale_fill_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+p2
+
+pdf("../Plots/Figure6_E_CSIclusternumber.pdf", height = 3, width = 4.3)
+print(p2)
+dev.off()
+
+pdf("../Plots/Figure6_F_FSTBClusternumber.pdf", height = 3, width = 4.3)
+print(p1)
+dev.off()
+```
+
+
+# Figure 6 G sensitivity matstats kmeans in CRS
+
+```{r,fig.width= 4.5, fig.height=3}
+dat <- readRDS("../data/CRS_Sensitivity_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = gs) + 
+  scale_color_manual(values = c("black","#9557bf")) +
+  scale_fill_manual(values = c("black","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+
+
+print(p1)
+
+pdf("../Plots/Figure6_G_CRS.pdf", height = 3, width = 4.3)
+print(p1)
+dev.off()
+
+p2 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","kmeans.50.matstats.p","kmeans.100.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = gs) + 
+  scale_color_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  scale_fill_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+
+
+print(p2)
+
+pdf("../Plots/Figure6_H_CRS_centers.pdf", height = 3, width = 4.3)
+print(p2)
+dev.off()
+```
+
+
+# Figure 6 I/J sensitivity matstats kmeans in DREADD
+
+```{r,fig.width= 4.5, fig.height=3}
+dat <- readRDS("../data/DREADD_Sensitivity_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = gs) + 
+  scale_color_manual(values = c("black","#9557bf")) +
+  scale_fill_manual(values = c("black","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+
+
+print(p1)
+
+pdf("../Plots/Figure6_I_DREADD.pdf", height = 3, width = 4.3)
+print(p1)
+dev.off()
+
+p2 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","kmeans.50.matstats.p","kmeans.100.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = gs) + 
+  scale_color_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  scale_fill_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size")
+
+
+print(p2)
+
+pdf("../Plots/Figure6_J_DREADD_centers.pdf", height = 3, width = 4.3)
+print(p2)
+dev.off()
+```
+
+# Figure 6 K/L sensitivity matstats kmeans in 24HFST
+
+```{r,fig.width= 4.5, fig.height=3}
+dat <- readRDS("../data/FST24h_Sensitivity_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","BSOID.27.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("#72ad3a","black","#9557bf")) +
+  scale_fill_manual(values = c("#72ad3a","black","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") + scale_y_continuous(limits = c(0,1.5))
+
+
+print(p1)
+
+pdf("../Plots/Figure6_K_24HFST.pdf", height = 3, width = 4.3)
+print(p1)
+dev.off()
+
+p2 <- ggplot(means[means$Group.1 %in% c("kmeans.25.matstats.p","kmeans.50.matstats.p","kmeans.100.matstats.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = gs) + 
+  scale_color_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  scale_fill_manual(values = c("black","#841cca","#ad8dc2","#9557bf")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") + scale_y_continuous(limits = c(0,1.5))
+
+
+print(p2)
+
+pdf("../Plots/Figure6_L_24HFST_centers.pdf", height = 3, width = 4.3)
+print(p2)
+dev.off()
+```

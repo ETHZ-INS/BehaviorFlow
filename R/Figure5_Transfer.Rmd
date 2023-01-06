@@ -1,0 +1,108 @@
+---
+title: "Figure5_Transfer"
+author: "Lukas von Ziegler"
+date: '2022-06-01'
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+required libraries
+
+```{r, message=FALSE, warning = FALSE}
+source("UnsupervisedAnalysis_Functions.R")
+library(ggplot2)
+library(circlize)
+library(cowplot)
+library(pracma)
+library(circlize)
+library(tidyr)
+set.seed(123)
+```
+
+# Loading the data
+
+We load the data for the unsupervised analysis object that we produced using kmeans clustering and added BSOID to
+
+```{r}
+US <- readRDS("../data/USData_transfer.rds")
+```
+
+
+# Figure5
+
+```{r, fig.width=5, fig.height=1}
+US2 <- SplitUSData(US,select = US$meta$Experiment %in% c("CRS","DREADD"))
+US2 <- AddConfusionMatrix(US2)
+```
+
+
+## Figure 5A_1 BehaviorFlow in controls from previous datasets
+
+```{r, fig.width=5, fig.height=5}
+A <- US$meta$Session == "PostCSI" & US$meta$Condition == "Control"
+B <- US$meta$Session == "PostYoh" & US$meta$Condition == "Control" & US$meta$Treatment == "Saline"
+C <- US$meta$Session == "FST45min" & US$meta$Treatment == "Control"
+
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[A|B|C] )
+
+pdf("../Plots/Figure5_A_1_Behaviorflowprev.pdf", height =5, width = 5)
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[A|B|C] )
+dev.off()
+```
+
+## Figure 5A_2 BehaviorFlow in controls from transfer datasets
+```{r, fig.width=5, fig.height=5}
+D <- US$meta$Session == "DREADD" & US$meta$Treatment == "saline"
+E <- US$meta$Session == "CRS1" & US$meta$Condition == "Control"
+
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[D|E])
+
+pdf("../Plots/Figure5_A_2_Behaviorflowtrans.pdf", height = 5, width = 5)
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[D|E])
+dev.off()
+```
+
+
+## Figure 5B Cluster to behavior mapping
+
+```{r, fig.width=5, fig.height=1}
+p1 <- PlotConfusionMatrix(US2$ConfusionMatrix_norm$`kmeans.25-rear.classifier`, pointsize = 4, hclust = TRUE)
+p1
+
+pdf("../Plots/Figure5_B_Behaviorcor.pdf", height =1, width = 5)
+print(p1)
+dev.off()
+```
+
+## Figure 5C 2D embedding of all data
+
+```{r, fig.width=4, fig.height=3}
+US3 <- SplitUSData(US, select = US$meta$Session %in% c("CRS1","PostCSI","FST45min","PostYoh","DREADD"))
+US3 <- SplitUSData(US3, omit = names(US3$files)[US3$meta$Condition == "Tunnel"] )
+
+US3 <- CalculateStabilizedTransitions(US3,"Condition","Control",subset = US3$meta$Session == "CRS1")
+US3 <- CalculateStabilizedTransitions(US3,"Condition","Control",subset = US3$meta$Session == "PostCSI")
+US3 <- CalculateStabilizedTransitions(US3,"Treatment","Control",subset = US3$meta$Session == "FST45min")
+US3 <- CalculateStabilizedTransitions(US3,"Treatment","Saline",subset = US3$meta$Session == "PostYoh")
+US3 <- CalculateStabilizedTransitions(US3,"Treatment","saline",subset = US3$meta$Session == "DREADD")
+
+US3$meta$Embedding <- "Control"
+US3$meta$Embedding[US3$meta$Session == "CRS1" & US3$meta$Condition != "Control"] <- "CRS"
+US3$meta$Embedding[US3$meta$Session == "PostCSI" & US3$meta$Condition != "Control"] <- "CSI"
+US3$meta$Embedding[US3$meta$Session == "FST45min" & US3$meta$Treatment != "Control"] <- "FST"
+US3$meta$Embedding[US3$meta$Session == "PostYoh" & US3$meta$Treatment != "Saline"] <- "Yohimbin"
+US3$meta$Embedding[US3$meta$Session == "DREADD" & US3$meta$Treatment != "saline"] <- "DREADD"
+
+p1 <- Plot2DEmbedding(US3,transitionmatrices_stabilized = "kmeans.25", colorby = "Embedding", colors = c("grey","#489648","#1C75BC","#A38507","#E21A1A","#AF4B08"), seed = 123,plot.sem = TRUE)
+p1
+
+pdf("../Plots/Figure5_C_Embedding.pdf", height =3, width = 4)
+print(p1)
+dev.off()
+```
+

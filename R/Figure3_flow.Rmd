@@ -1,0 +1,171 @@
+---
+title: "Figure3_flow"
+author: "Lukas von Ziegler"
+date: '2022-06-01'
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+required libraries
+
+```{r, message=FALSE, warning = FALSE}
+source("UnsupervisedAnalysis_Functions.R")
+library(ggplot2)
+library(circlize)
+library(cowplot)
+library(pracma)
+library(circlize)
+library(tidyr)
+set.seed(123)
+```
+
+# Loading the data
+
+We load the data for the unsupervised analysis object that we produced using kmeans clustering and added BSOID to
+
+```{r}
+US <- readRDS("../data/USData.rds")
+
+US2 <- SplitUSData(US, select = US$meta$Session %in% c("PostCSI"))
+US2 <- TwoGroupAnalysis(US2,group = US2$meta$Condition, n_bootstraps = 10)
+```
+
+
+# Figure3
+
+## Figure 3A behavior flow in and kmeans
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow(US2,lab = "kmeans.25")
+
+
+pdf("../Plots/Figure3_A_flow.pdf", height = 5, width = 5)
+PlotBehaviorFlow(US2,lab = "kmeans.25")
+dev.off()
+```
+
+## Figure 3B delta behavior flow in CSI
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US2,lab = "kmeans.25",grouping = US2$meta$Condition == "CSI")
+
+pdf("../Plots/Figure3_B_deltaflow.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US2,lab = "kmeans.25",grouping = US2$meta$Condition == "CSI")
+dev.off()
+```
+## Figure 3C significant transitions
+
+```{r, fig.height=2, fig.width=4}
+US2$Results$`CSI-vs-Control`$TransitionStats$kmeans.25
+
+p1 <- PlotTransitions(US2,lab = "kmeans.25", from = c("16","14"), to = c("14","3"),groupby = "Condition", cols = c("black","#1C75BC"))
+print(p1)
+
+pdf("../Plots/Figure3_C_CSItransitions.pdf", height = 2, width = 4)
+print(p1)
+dev.off()
+```
+
+## Figure 3D 2D embedding of CSI
+
+```{r, fig.height=2, fig.width=3}
+US2 <- CalculateStabilizedTransitions(US2, group = "Condition",control = "Control",labels = "kmeans.25")
+p2 <- Plot2DEmbedding(US2,transitionmatrices_stabilized = "kmeans.25",colorby = "Condition",colors =  c("black","#1C75BC"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p2)
+
+pdf("../Plots/Figure3_D_CSI_embedding.pdf", height = 2, width = 3)
+print(p2)
+dev.off()
+```
+
+## Figure 3E Delta flow in FST
+
+```{r, fig.height=5, fig.width=5}
+US3 <- SplitUSData(US, select = US$meta$Session %in% c("FST45min"))
+US3 <- TwoGroupAnalysis(US3,group = US3$meta$Treatment, n_bootstraps = 10)
+
+pdf("../Plots/Figure3_E_FST_delta.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US3,lab = "kmeans.25",grouping = US3$meta$Treatment == "Swim")
+dev.off()
+```
+
+## Figure 3F Rearing behavior in FST
+
+```{r, fig.height=2, fig.width=2.5}
+stats <- US3$Results$`Swim-vs-Control`$Statistics$raw
+pdat <- US3$Report$raw
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+assign <- match(pdat$filename, US3$meta$filename)
+pdat$Group <- US3$meta$Treatment[assign]
+
+pdat <- pdat[pdat$key %in% c("classifications.Supported.count"),]
+p1 <- ggplot(pdat,aes(Group,value, color = Group)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  scale_color_manual(values = c("black","#BE1E2D")) + 
+  geom_point(position = position_jitter(width = 0.15)) + 
+  facet_wrap(~key, scales = "free") + 
+  theme_bw()
+
+stats[stats$name %in% c("classifications.Supported.count"),]
+
+print(p1)
+
+pdf("../Plots/Figure3_F_supported.pdf", height = 2, width = 2.5)
+print(p1)
+dev.off()
+```
+
+## Figure 3X Rearing behavior in FST 24h
+
+```{r, fig.height=2, fig.width=2.5}
+US4 <- SplitUSData(US, select = US$meta$Session %in% c("FST24h"))
+US4 <- TwoGroupAnalysis(US4,group = US4$meta$Treatment, n_bootstraps = 10)
+stats <- US4$Results$`Swim-vs-Control`$Statistics$raw
+pdat <- US4$Report$raw
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+assign <- match(pdat$filename, US4$meta$filename)
+pdat$Group <- US3$meta$Treatment[assign]
+
+pdat <- pdat[pdat$key %in% c("classifications.Supported.count"),]
+p1 <- ggplot(pdat,aes(Group,value, color = Group)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  scale_color_manual(values = c("black","grey")) + 
+  geom_point(position = position_jitter(width = 0.15)) + 
+  facet_wrap(~key, scales = "free") + 
+  theme_bw()
+
+stats[stats$name %in% c("classifications.Supported.count"),]
+
+print(p1)
+
+pdf("../Plots/Figure3_X_supported24h.pdf", height = 2, width = 2.5)
+print(p1)
+dev.off()
+```
+
+
+## Figure 3G embedding with FST
+
+```{r, fig.height=2, fig.width=3}
+US5 <- SplitUSData(US, select = US$meta$Session %in% c("FST45min","FST24h"))
+
+US5$meta$Treatment2 <- US5$meta$Treatment
+US5$meta$Treatment2 <- ifelse(US5$meta$Treatment2 == "Control",US4$meta$Treatment2, US4$meta$TimePoint)
+US5 <- CalculateStabilizedTransitions(US5, group = "Treatment",control = "Control",labels = "kmeans.25", subset = US4$meta$TimePoint == "45min")
+US5 <- CalculateStabilizedTransitions(US5, group = "Treatment",control = "Control",labels = "kmeans.25", subset = US4$meta$TimePoint == "24h")
+
+pdf("../Plots/Figure3_G_embedding.pdf", height = 2, width = 3)
+Plot2DEmbedding(US5,transitionmatrices_stabilized = "kmeans.25",colorby = "Treatment2",colors =  c("grey","#BE1E2D","black"),plot.sem = TRUE, method = "umap", seed = 123)
+dev.off()
+```
+
+

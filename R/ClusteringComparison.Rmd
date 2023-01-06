@@ -1,0 +1,472 @@
+---
+title: "ClusteringComparison"
+author: "Lukas von Ziegler"
+date: '2022-06-01'
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+required libraries
+
+```{r, message=FALSE, warning = FALSE}
+source("UnsupervisedAnalysis_Functions.R")
+library(ggplot2)
+library(circlize)
+library(cowplot)
+library(pracma)
+library(circlize)
+library(tidyr)
+set.seed(123)
+```
+
+# Loading and pre-processing the data
+
+We load the data for the unsupervised analysis object that we produced using kmeans clustering
+
+```{r}
+US <- readRDS("../data/USData.rds")
+```
+
+we add the B-Soid clustering data. we cut the first 300 frames (as we did with kmeans), since these are sometimes accompanied with noise from delayed animal placement / lighting changes etc. we create a USDataCheck report to inspect the complexity of the data and a USDataCheck to ensure that all labels have exactly the same number of frames for each file. 
+
+```{r, eval =FALSE}
+US <- AddFromBsoid(US,"../BSOID/Clustering1Data/",cut_start = 300,lab_name = "BSOID.8")
+US <- AddFromBsoid(US,"../BSOID/Clustering2Data/",cut_start = 300,lab_name = "BSOID.27")
+head(USDataReport(US))
+USDataCheck(US)
+```
+
+we first smooth the data over 5 frames, this removes clusters that were identified in a single frame and ensures that beahvior trains are better resolved
+
+```{r, eval = FALSE}
+US <- SmoothLabels_US(US, 5)
+```
+
+We calculate metrics, such as number of onset-offset and number of frames for each cluster.
+
+```{r, eval = FALSE}
+US <- CalculateMetrics(US)
+```
+
+Next, we calculate the trainsitionsmatrix for each clustering analysis in each file
+
+```{r, eval = FALSE}
+US <- AddTransitionMatrixData(US)
+```
+
+We finally calculate the confusion matrix between each clustering result across all files. this will allow us to compare different algorithms and see if they result in clusters that map strongly to each other
+
+```{r, eval = FALSE}
+US <- AddConfusionMatrix(US)
+```
+
+We save this object, so next time we do not have to re-process it
+
+```{r, eval = FALSE}
+saveRDS(US,"../data/USData.rds")
+```
+
+# Analysis
+
+## Analysis of Clustering characteristics
+
+In this section we will investigate how well clusters from different kmeans algorithms correlate to each other and to rearing beahavoir in mice
+
+### Mapping to rearing beahviors
+
+
+```{r, fig.height=1.2, fig.width=3}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`BSOID-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=5}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`BSOID.27-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+
+
+```{r, fig.height=1.2, fig.width=3}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.10-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=4.5}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.25-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=7}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.50-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=10}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.100-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+we notice that with increase clusters numbers more specifically map to annotated beahviors in general
+
+### Mapping to rearing beahviors with svd prior to clustering
+
+```{r, fig.height=1.2, fig.width=3}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.svd.10-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=4}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.svd.25-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=7}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.svd.50-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+```{r, fig.height=1.2, fig.width=10}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.svd.100-rear.classifier`,pointsize = 4, hclust = TRUE)
+```
+
+using svd prior to clustering does not alter the mapping to annotated behaviors strongly
+
+### kmeans to svd + kmeans clustering
+
+```{r, fig.height=6, fig.width=7}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.50-kmeans.svd.50`,pointsize = 4, hclust = TRUE)
+```
+kmeans and svd + kmeans finds quite different solutions and poor overlap for most clusters
+
+### kmeans vs kmeans with more clusters
+
+```{r, fig.height=6, fig.width=10}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.100-kmeans.50`,pointsize = 4, hclust = TRUE)
+```
+
+As we increase the number of clusters, some are retained, and some are further subdivided into multiple sub-clusters. mapping between kmeans 50 and kmeans 100 is much better than between kmeans 50 and kmeans + svd 50
+
+### Behavior flow of kmeans vs kmeans + svd
+
+```{r, fig.height=6, fig.width=6}
+pdf("flow.pdf",height = 6, width = 6)
+PlotBehaviorFlow(US,lab = "kmeans.25")
+dev.off()
+```
+
+```{r, fig.height=6, fig.width=6}
+PlotBehaviorFlow(US,lab = "kmeans.svd.25")
+```
+
+
+```{r, fig.height=6, fig.width=6}
+PlotBehaviorFlow(US,lab = "BSOID.27")
+```
+
+
+Overall the transitions for the kmeans + svd cluster are not as well defined as the kmeans without svd
+
+### Sensitivit to resolve Phenotype (CSI)
+
+```{r, fig.height=6, fig.width=6}
+US_CSI <-SplitUSData(US, select = (US$meta$Session == "PostCSI"))
+US_CSI$Results <- NULL
+PlotBehaviorFlow_Delta(US_CSI, US_CSI$meta$Condition == "CSI", lab = "kmeans.25")
+PlotBehaviorFlow_Delta(US_CSI, US_CSI$meta$Condition == "CSI", lab = "kmeans.25", method = "up")
+PlotBehaviorFlow_Delta(US_CSI, US_CSI$meta$Condition == "CSI", lab = "kmeans.25", method = "down")
+US_CSI <- TwoGroupAnalysis(US_CSI, US_CSI$meta$Condition)
+
+#classical readouts
+head(US_CSI$Results[[1]]$Statistics$raw)
+
+#clusters stats
+head(US_CSI$Results[[1]]$Statistics$kmeans.25)
+
+#clusters Transition Stats
+head(US_CSI$Results[[1]]$TransitionStats$kmeans.25$transitions)
+
+US$Results <- US_CSI$Results
+```
+
+```{r, fig.width= 6, fig.height=12}
+PlotTransitionsStats(US_CSI)
+```
+
+### Sensitivit to resolve Phenotype (FST 45min)
+
+```{r, fig.height=6, fig.width=6}
+US_FST45 <-SplitUSData(US, select = (US$meta$Session == "FST45min"))
+US_FST45$Results <- NULL
+PlotBehaviorFlow_Delta(US_FST45, US_FST45$meta$Treatment == "Swim", lab = "kmeans.25")
+PlotBehaviorFlow_Delta(US_FST45, US_FST45$meta$Treatment == "Swim", lab = "kmeans.25", method = "up")
+PlotBehaviorFlow_Delta(US_FST45, US_FST45$meta$Treatment == "Swim", lab = "kmeans.25", method = "down")
+US_FST45 <- TwoGroupAnalysis(US_FST45, US_FST45$meta$Treatment)
+
+#classical readouts
+head(US_FST45$Results[[1]]$Statistics$raw)
+
+#clusters stats
+head(US_FST45$Results[[1]]$Statistics$kmeans.25)
+
+#clusters Transition Stats
+head(US_FST45$Results[[1]]$TransitionStats$kmeans.25$transitions)
+
+US$Results <- append(US$Results, US_FST45$Results)
+```
+
+```{r, fig.width= 6, fig.height=12}
+PlotTransitionsStats(US_FST45)
+```
+
+### Sensitivit to resolve Phenotype (FST 24h)
+
+```{r, fig.height=6, fig.width=6}
+US_FST24 <-SplitUSData(US, select = (US$meta$Session == "FST24h"))
+US_FST24$Results <- NULL
+PlotBehaviorFlow_Delta(US_FST24, US_FST24$meta$Treatment == "Swim", lab = "kmeans.25")
+PlotBehaviorFlow_Delta(US_FST24, US_FST24$meta$Treatment == "Swim", lab = "kmeans.25", method = "up")
+PlotBehaviorFlow_Delta(US_FST24, US_FST24$meta$Treatment == "Swim", lab = "kmeans.25", method = "down")
+US_FST24 <- TwoGroupAnalysis(US_FST24, US_FST24$meta$Treatment)
+
+#classical readouts
+head(US_FST24$Results[[1]]$Statistics$raw)
+
+#clusters stats
+head(US_FST24$Results[[1]]$Statistics$kmeans.25)
+
+#clusters Transition Stats
+head(US_FST24$Results[[1]]$TransitionStats$kmeans.25$transitions)
+
+US$Results <- append(US$Results, US_FST24$Results)
+```
+
+```{r, fig.width= 6, fig.height=12}
+PlotTransitionsStats(US_FST24)
+```
+
+### Sensitivit to resolve Phenotype (Tunnel Handling)
+
+```{r, fig.height=6, fig.width=6}
+US_Tun <-SplitUSData(US, select = (US$meta$Session == "PreYoh"))
+US_Tun$Results <- NULL
+PlotBehaviorFlow_Delta(US_Tun, US_Tun$meta$Condition == "Tunnel", lab = "kmeans.25")
+PlotBehaviorFlow_Delta(US_Tun, US_Tun$meta$Condition == "Tunnel", lab = "kmeans.25",method = "up")
+PlotBehaviorFlow_Delta(US_Tun, US_Tun$meta$Condition == "Tunnel", lab = "kmeans.25", method = "down")
+US_Tun <- TwoGroupAnalysis(US_Tun, US_Tun$meta$Condition)
+
+#classical readouts
+head(US_Tun$Results[[1]]$Statistics$raw)
+
+#clusters stats
+head(US_Tun$Results[[1]]$Statistics$kmeans.25)
+
+#clusters Transition Stats
+head(US_Tun$Results[[1]]$TransitionStats$kmeans.25$transitions)
+
+US$Results <- append(US$Results, US_Tun$Results)
+```
+
+```{r, fig.width= 6, fig.height=12}
+PlotTransitionsStats(US_Tun)
+```
+
+### Sensitivit to resolve Phenotype (Shock anxiety)
+
+```{r, fig.height=6, fig.width=6}
+US_SA <-SplitUSData(US, select = (US$meta$Session == "PostSA"))
+US_SA$Results <- NULL
+PlotBehaviorFlow_Delta(US_SA, US_SA$meta$Treatment == "SA", lab = "kmeans.25")
+PlotBehaviorFlow_Delta(US_SA, US_SA$meta$Treatment == "SA", lab = "kmeans.25", method = "up")
+PlotBehaviorFlow_Delta(US_SA, US_SA$meta$Treatment == "SA", lab = "kmeans.25", method = "down")
+US_SA <- TwoGroupAnalysis(US_SA, US_SA$meta$Treatment)
+
+#classical readouts
+head(US_SA$Results[[1]]$Statistics$raw)
+
+#clusters stats
+head(US_SA$Results[[1]]$Statistics$kmeans.25)
+
+#clusters Transition Stats
+head(US_SA$Results[[1]]$TransitionStats$kmeans.25$transitions)
+
+US$Results <- append(US$Results, US_SA$Results)
+```
+
+```{r, fig.width= 6, fig.height=12}
+PlotTransitionsStats(US_SA)
+```
+
+### Sensitivit to resolve Phenotype (Yohimbine)
+
+```{r, fig.height=6, fig.width=6}
+US_Yoh <-SplitUSData(US, select = (US$meta$Session == "PostYoh"))
+US_Yoh$Results <- NULL
+PlotBehaviorFlow_Delta(US_Yoh, US_Yoh$meta$Treatment == "Yohimbin", lab = "kmeans.25")
+PlotBehaviorFlow_Delta(US_Yoh, US_Yoh$meta$Treatment == "Yohimbin", lab = "kmeans.25", method = "up")
+PlotBehaviorFlow_Delta(US_Yoh, US_Yoh$meta$Treatment == "Yohimbin", lab = "kmeans.25", method = "down")
+
+US_Yoh <- TwoGroupAnalysis(US_Yoh, US_Yoh$meta$Treatment)
+
+#classical readouts
+head(US_Yoh$Results[[1]]$Statistics$raw)
+
+#clusters stats
+head(US_Yoh$Results[[1]]$Statistics$kmeans.25)
+
+#clusters Transition Stats
+head(US_Yoh$Results[[1]]$TransitionStats$kmeans.25$transitions)
+
+US$Results <- append(US$Results, US_Yoh$Results)
+saveRDS(US,"../data/USData_Results.rds")
+```
+
+```{r, fig.width= 6, fig.height=12}
+PlotTransitionsStats(US_Yoh)
+```
+
+
+## Analysis of sensitiviy curves
+
+### CSI
+
+```{r, eval = FALSE}
+brk <- c(50,40,30,20,10)
+nsim <- 40
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    US_CSI <- SplitUSData(US, select = (US$meta$Session == "PostCSI"))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US_CSI2 <- SplitUSData(US_CSI, include = sample(US_CSI$file_names)[1:i])
+      if(table(US_CSI2$meta$Condition)[1] == i/2){
+        US_CSI <- TwoGroupAnalysis(US_CSI2, US_CSI2$meta$Condition,lab = c("BSOID.8","BSOID.27","kmeans.10","kmeans.25","kmeans.50","kmeans.100","kmeans.svd.10","kmeans.svd.25","kmeans.svd.50","kmeans.svd.100"))
+        equal = TRUE
+      }
+    }
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                p.value.BSOID.8 = US_CSI$Results[[1]]$TransitionStats[["BSOID.8"]]$p.value,
+                                p.value.BSOID.27 = US_CSI$Results[[1]]$TransitionStats[["BSOID.27"]]$p.value,
+                                p.value.kmeans.10 = US_CSI$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                p.value.kmeans.25 = US_CSI$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                p.value.kmeans.50 = US_CSI$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                p.value.kmeans.100 = US_CSI$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                p.value.kmeans.svd.10 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.10"]]$p.value,
+                                p.value.kmeans.svd.25 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.25"]]$p.value,
+                                p.value.kmeans.svd.50 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.50"]]$p.value,
+                                p.value.kmeans.svd.100 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.100"]]$p.value,
+                                p.value.classical = US_CSI$Results[[1]]$Statistics$raw[1,3]))
+  }
+}
+
+saveRDS(Res,"../data/CSI_Sensitivity.rds")
+```
+
+Plot
+
+```{r, fig.width= 6, fig.height=5}
+dat <- readRDS("../data/CSI_Sensitivity.rds")
+
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+
+means <- means[,c(1,4:14)]
+sds <- sds[,c(1,4:14)]
+
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(c(5,10,15,20,25),11)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+means$Type[grepl("kmeans.svd",means$Group.1)] <- "svd + kmean"
+
+p1 <- ggplot(means, aes(GroupSize,-log10(p.value), color = Group.1)) + 
+  geom_ribbon(aes(ymin = -log10(p.value-sem),ymax = -log10(p.value+sem), fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("Group Size")+
+  facet_wrap(~Type)
+
+print(p1)
+```
+
+### FST
+
+```{r, fig.width= 4, fig.height=3, eval = FALSE}
+brk <- c(26,22,18,14,10)
+nsim <- 40
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    US_CSI <- SplitUSData(US, select = (US$meta$Session == "FST45min"))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US_CSI2 <- SplitUSData(US_CSI, include = sample(US_CSI$file_names)[1:i])
+      if(table(US_CSI2$meta$Treatment)[1] == i/2){
+        US_CSI <- TwoGroupAnalysis(US_CSI2, US_CSI2$meta$Treatment,lab = c("BSOID.8","BSOID.27","kmeans.10","kmeans.25","kmeans.50","kmeans.100","kmeans.svd.10","kmeans.svd.25","kmeans.svd.50","kmeans.svd.100"))
+        equal = TRUE
+      }
+    }
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                p.value.BSOID.8 = US_CSI$Results[[1]]$TransitionStats[["BSOID.8"]]$p.value,
+                                p.value.BSOID.27 = US_CSI$Results[[1]]$TransitionStats[["BSOID.27"]]$p.value,
+                                p.value.kmeans.10 = US_CSI$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                p.value.kmeans.25 = US_CSI$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                p.value.kmeans.50 = US_CSI$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                p.value.kmeans.100 = US_CSI$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                p.value.kmeans.svd.10 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.10"]]$p.value,
+                                p.value.kmeans.svd.25 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.25"]]$p.value,
+                                p.value.kmeans.svd.50 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.50"]]$p.value,
+                                p.value.kmeans.svd.100 = US_CSI$Results[[1]]$TransitionStats[["kmeans.svd.100"]]$p.value,
+                                p.value.classical = US_CSI$Results[[1]]$Statistics$raw[1,3]))
+  }
+}
+
+saveRDS(Res,"../data/FST_Sensitivity.rds")
+
+```
+
+
+
+```{r, fig.width= 6, fig.height=5}
+dat <- readRDS("../data/FST_Sensitivity.rds")
+
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+
+means <- means[,c(1,4:14)]
+sds <- sds[,c(1,4:14)]
+
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(c(5,7,9,11,13),11)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+means$Type[grepl("kmeans.svd",means$Group.1)] <- "svd + kmean"
+
+p1 <- ggplot(means, aes(GroupSize,-log10(p.value), color = Group.1)) + 
+  geom_ribbon(aes(ymin = -log10(p.value-sem),ymax = -log10(p.value+sem), fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("Group Size")+
+  facet_wrap(~Type)
+
+print(p1)
+
+fs <- list.files("../data/DREADD/")
+write.table(data.frame(fs),"../metadata/s2c_DREADD.csv", sep = ";")
+```
