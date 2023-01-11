@@ -1,24 +1,3 @@
-- [Analysis of unsupervised clustering results](#analysis-of-unsupervised-clustering-results)
-  * [building the data object](#building-the-data-object)
-    + [Loading the data](#loading-the-data)
-      - [Loading from multiple CSV files](#loading-from-multiple-csv-files)
-      - [Loading from TrackingData (DLC Analyzer)](#loading-from-trackingdata--dlc-analyzer-)
-    + [Exploring the data structure of USData](#exploring-the-data-structure-of-usdata)
-    + [Adding more data to an existing USData object](#adding-more-data-to-an-existing-usdata-object)
-      - [Adding new labels to existing files](#adding-new-labels-to-existing-files)
-      - [Adding new files](#adding-new-files)
-    + [Removing files or labels from the dataset](#removing-files-or-labels-from-the-dataset)
-  * [Processing the data and runing basic analyses](#processing-the-data-and-runing-basic-analyses)
-    + [Smoothing and creating a basic report](#smoothing-and-creating-a-basic-report)
-    + [Calculating Transitionmatrices and ploting behavior flow](#calculating-transitionmatrices-and-ploting-behavior-flow)
-    + [Mapping different label groups to each other](#mapping-different-label-groups-to-each-other)
-  * [Grouped analyses](#grouped-analyses)
-    + [Adding metadata](#adding-metadata)
-    + [Statistical two group analysis](#statistical-two-group-analysis)
-    + [2D embedding of transition data](#2d-embedding-of-transition-data)
-    + [2D embedding of data from multiple datasets](#2d-embedding-of-data-from-multiple-datasets)
-
-
 Analysis of unsupervised clustering results
 ===========================================
 
@@ -51,6 +30,7 @@ library(cowplot)
 library(circlize)
 library(imputeTS)
 library(M3C)
+library(pracma)
 ```
 
 building the data object
@@ -231,7 +211,6 @@ look like, have a look at `ExampleData/CSVinput_newlabels`
 # From CSVs
 US$label_names
 US_addedlabels <- AddFromCSVs(US,"ExampleData/CSVinput_newlabels/")
-US_addedlabels$label_names
 
 # From TrackingData
 TS_newlabels <- readRDS("ExampleData/ExampleTS_newlabels.rds")
@@ -414,6 +393,20 @@ head(US$Report$rear.classifier)
 nframes summarizes for how many frames each label occurred and count
 will summarize the number of individual onsets/offsets pairs
 
+Furthermore, after adding onset and Offset data we can plot behavior
+trains, to see how specific examples of labels map to other label groups
+using the following command:
+
+``` r
+BehaviorTrainPlot(US, lab = "rear.classifier", val = "Supported",len = 50,n = 100, max_clust = 3)
+```
+
+![](README_files/figure-markdown_github/unnamed-chunk-20-1.png)
+
+we see that from the 3 clusters that map most often to Supported rears
+cluster 1 describes rearing onset (first \~20 frames) most of the times,
+and clusters 11 and 12 define rearing offset most of the times
+
 ### Calculating Transitionmatrices and ploting behavior flow
 
 Next, we calculate add trainsitionsmatrix for each label class. The
@@ -469,7 +462,7 @@ required
 PlotBehaviorFlow(US, lab = "kmeans.25")
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-22-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-23-1.png)
 
 ### Mapping different label groups to each other
 
@@ -561,7 +554,7 @@ We can further plot this by using:
 PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.25-rear.classifier`,pointsize = 5)
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-26-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-27-1.png)
 
 Grouped analyses
 ----------------
@@ -676,7 +669,7 @@ Control animals for this we can now use:
 PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25")
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-31-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-32-1.png)
 
 This plot will show all transitions that are in average different
 between CSI and Control animals. If we more specifically want to see
@@ -686,13 +679,13 @@ which transitions are upregulated or downregulated in CSI we use
 PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25", method = "up")
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-32-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-33-1.png)
 
 ``` r
 PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25", method = "down")
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-33-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-34-1.png)
 
 ### Statistical two group analysis
 
@@ -706,6 +699,11 @@ command:
 ``` r
 US <- TwoGroupAnalysis(US, group = US$meta$Condition)
 ```
+
+    ## Loading required package: prcma
+
+    ## Warning in library(package, lib.loc = lib.loc, character.only = TRUE,
+    ## logical.return = TRUE, : there is no package called 'prcma'
 
     ## [1] "no label specified, performing analysis for all"
 
@@ -742,10 +740,10 @@ str(US$Results$`CSI-vs-Control`)
     ##  $ TransitionStats:List of 2
     ##   ..$ rear.classifier:List of 6
     ##   .. ..$ distance   : num 5.92
-    ##   .. ..$ bootstraps : num [1:1000] 18.13 6.45 9.1 13.88 4.61 ...
-    ##   .. ..$ percentile : num 15.7
-    ##   .. ..$ sigma      : num -0.999
-    ##   .. ..$ p.value    : num 0.841
+    ##   .. ..$ bootstraps : num [1:1000] 16 17.8 25.7 10.3 14.9 ...
+    ##   .. ..$ percentile : num 17.9
+    ##   .. ..$ sigma      : num -0.963
+    ##   .. ..$ p.value    : num 0.832
     ##   .. ..$ transitions:'data.frame':   9 obs. of  7 variables:
     ##   .. .. ..$ from   : chr [1:9] "Supported" "Unsupported" "None" "Unsupported" ...
     ##   .. .. ..$ to     : chr [1:9] "Unsupported" "Supported" "Unsupported" "None" ...
@@ -756,10 +754,10 @@ str(US$Results$`CSI-vs-Control`)
     ##   .. .. ..$ FDR    : num [1:9] 0.44 0.44 1 1 1 ...
     ##   ..$ kmeans.25      :List of 6
     ##   .. ..$ distance   : num 143
-    ##   .. ..$ bootstraps : num [1:1000] 83.9 100.2 99.6 97.1 92.7 ...
+    ##   .. ..$ bootstraps : num [1:1000] 99.4 85.4 99.5 90 89.5 ...
     ##   .. ..$ percentile : num 99.9
-    ##   .. ..$ sigma      : num 6.11
-    ##   .. ..$ p.value    : num 5.11e-10
+    ##   .. ..$ sigma      : num 6.45
+    ##   .. ..$ p.value    : num 5.71e-11
     ##   .. ..$ transitions:'data.frame':   625 obs. of  7 variables:
     ##   .. .. ..$ from   : chr [1:625] "16" "14" "3" "3" ...
     ##   .. .. ..$ to     : chr [1:625] "14" "3" "21" "25" ...
@@ -822,7 +820,7 @@ the two groups. Results can be visualized using:
 PlotTransitionsStats(US, labels = "kmeans.25")
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-39-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-40-1.png)
 
 ### 2D embedding of transition data
 
@@ -841,7 +839,7 @@ Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Condition", col
 
     ## done.
 
-![](README_files/figure-markdown_github/unnamed-chunk-40-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-41-1.png)
 
 ### 2D embedding of data from multiple datasets
 
@@ -903,7 +901,7 @@ Plot2DEmbedding(US2,transitionmatrices = "kmeans.25",colorby = "Experiment", plo
 
     ## done.
 
-![](README_files/figure-markdown_github/unnamed-chunk-43-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-44-1.png)
 
 Indeed, we find that even Control groups between the different
 experiments vary somewhat. in order to adress this problem we can use a
@@ -945,7 +943,7 @@ Plot2DEmbedding(US2,transitionmatrices_stabilized = "kmeans.25",colorby = "Exper
 
     ## done.
 
-![](README_files/figure-markdown_github/unnamed-chunk-44-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-45-1.png)
 
 We can see that now the control groups have been fixed on each other. we
 can now plot the full data with the Conditions colored
@@ -962,4 +960,4 @@ Plot2DEmbedding(US_multi,transitionmatrices_stabilized = "kmeans.25",colorby = "
 
     ## done.
 
-![](README_files/figure-markdown_github/unnamed-chunk-45-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-46-1.png)
