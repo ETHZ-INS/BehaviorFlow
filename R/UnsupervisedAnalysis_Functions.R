@@ -1178,6 +1178,53 @@ TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = N
 }
 
 
+#' Runs multiple two group analyses on an object of type USData across raw data, cluster usage, transition usage and transition matrix differences. The USdata object can contain samples of two or more groups to compare. A separate two group analysis will be performed on each pair of groups.
+#' 
+#' @param us an object of type USData
+#' @param group a vector of characters. this vector needs to have an entry for each sample within the USdata and should contain two or more groups
+#' @param n_bootstraps an integer. number of bootstraps that will be used to calculate transition matrix distance statistics. larger number will enable a better modeling of the null distribution at the cost of increased runtime. defaults to 1000
+#' @param lab character or list of characters. the label group(s) for which the two group analysis will be performed. defaults to NULL which will do an independent analysis for each label group
+#' @return an object of type USData
+#' @examples
+#' US <- MultipleGroupAnalysis(US, group = c("control","control","control","group1","group1","group1","group2","group2"))
+#' US <- MultipleGroupAnalysis(US, group = US$meta$group)
+#' US <- MultipleGroupAnalysis(US, group = US$meta$group, n_bootstraps = 10000, lab = "kmeans.25"))
+#' print(US$Results$`A-vs-B`$Statistics)
+#' print(US$Results$`A-vs-B`$TransitionStats)
+MultipleTwoGroupAnalysis <- function(us, group, n_bootstraps = 1000, lab = NULL) {
+  if(length(us$files) != length(group)){
+    warning("Grouping vector needs to have same length as number of files. Cannot perform analysis!")
+    return(us)
+  }
+  if(length(group) < 2){
+    warning("Grouping vector needs to contain at least 2 groups. Cannot perform analysis!")
+    return(us)
+  }
+  
+  list_groups <- unique(group)
+  
+  for (i in 1:(length(list_groups)-1)) {
+    for (j in (i+1):length(list_groups)) {
+      # Run two group analysis for 
+      us2 <- SplitUSData(us, select = (group == list_groups[[i]] | group == list_groups[[j]]))
+      group2 <- group[group == list_groups[[i]] | group == list_groups[[j]]]
+      
+      print(paste("Run TwoGroupAnalysis for group ", list_groups[[i]], " and ", list_groups[[j]], "."))
+      us2 <- TwoGroupAnalysis(us2, group2, n_bootstraps = n_bootstraps, lab = lab)
+      name <- paste(list_groups[[i]], list_groups[[j]], collapse = "-vs-")
+      
+      # Add results to US object
+      if(is.null(us$Results)){
+        us$Results <- list()
+      }
+      us$Results[[names(us2$Results)[[length(names(us2$Results))]]]] <- us2$Results[[names(us2$Results)[[length(names(us2$Results))]]]]
+    }
+  }
+  
+  return(us)
+}
+
+
 #' Runs a PCA analysis on a Report group followed by a linear model analysis on PCs for group effect
 #' 
 #' @param us an object of type USData
