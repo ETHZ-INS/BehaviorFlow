@@ -457,7 +457,9 @@ FuseUSData <- function(us1, us2){
   
   #combine raw report if present in both us1 and us2
   if(!is.null(us1$Report$raw) & !is.null(us2$Report$raw)){
+    rname <- append(rownames(us1$Report$raw),rownames(us2$Report$raw))
     us1$Report$raw <- plyr::rbind.fill(us1$Report$raw, us2$Report$raw)
+    rownames(us1$Report$raw) <- rname
   }
   
   #combine metadata of us1 and us2
