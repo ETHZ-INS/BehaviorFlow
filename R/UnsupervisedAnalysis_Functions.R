@@ -461,7 +461,9 @@ FuseUSData <- function(us1, us2){
   }
   
   #combine metadata of us1 and us2
+  rname <- append(rownames(us1$meta),rownames(us2$meta))
   us1$meta <- plyr::rbind.fill(us1$meta, us2$meta)
+  rownames(us1$meta) <- rname
   
   #remove confusion matrix if present
   if(!is.null(us1$ConfusionMatrix)){
@@ -667,7 +669,7 @@ SplitUSData <- function(us, include = NULL, omit = NULL, select = NULL){
   }
   
   us$files <- us$files[keep]
-  us$meta <- us$meta[keep,]
+  us$meta <- us$meta[keep,,drop = FALSE]
   us$file_names <- keep
   if(!is.null(us$Report)){
     for(j in names(us$Report)){
@@ -677,6 +679,65 @@ SplitUSData <- function(us, include = NULL, omit = NULL, select = NULL){
   
   return(us)
 }
+
+
+#' Cuts each file in an object of type USdata.
+#' 
+#' @param us us an object of type USData
+#' @param maxlength a integer. maximum length a file may be (in frames). will cut the end until length =< maxlength. defaults to NULL = no defined maximum length
+#' @param start integer. number of frames that should be cut at the start of each file. defaults to NULL = no cut at start
+#' @param end integer. number of frames that should be cut at the end of each file. defaults to NULL = no cut at end
+#' @return An object of type USData
+#' @examples
+#' US <- CutUSdata(US, maxlength = 10000)
+#' US <- CutUSdata(US, start = 500)
+#' US <- CutUSdata(US, end = 500)
+#' US <- CutUSdata(US, start = 500, end = 500, maxlength = 2000)
+CutUSdata <- function(us, maxlength = NULL, start = NULL, end = NULL){
+  for(i in us$file_names){
+    dat <- us$files[[i]]
+    keep <- 1:dat$n_frames
+    if(!is.null(start)){
+      keep <- start:dat$n_frames
+    }
+    if(!is.null(end)){
+      keep <- keep[1]:(dat$n_frames - end)
+    }
+    if(!is.null(maxlength)){
+      keep <- keep[1]:keep[min(maxlength,length(keep))]
+    }
+    for(j in names(dat$data)){
+      dat$data[[j]] <- dat$data[[j]][keep]
+      dat$raw_data[[j]] <- dat$raw_data[[j]][keep]
+    }
+    dat$n_frames <- length(keep)
+    us$files[[i]] <- dat[1:3]
+  }
+  
+  if(us$has.updated.analysis$Transmat){
+    warning("deleted all Transitionmatrices due to changes in data. re-run analysis!\n")
+    us$has.updated.analysis$Transmat <- FALSE
+    us$transitionmatrix_names <- NULL
+    us$has.updated.analysis$Transmat <- FALSE
+  }
+  if(us$has.updated.analysis$Confmat){
+    warning("deleted all Confusionmatrices due to changes in data. re-run analysis!\n")
+    us$has.updated.analysis$Confmat <- FALSE
+    us$ConfusionMatrix <- NULL
+    us$ConfusionMatrix_norm <- NULL
+    us$has.updated.analysis$Confmat <- FALSE
+  }
+  if(us$has.updated.analysis$Report){
+    warning("deleted all Metrics (Onsetdata and per file Reports) due to changes in data. re-run analysis!\n")
+    us$Report[us$label_names] <- NULL
+    us$has.updated.analysis$Report <- FALSE
+    us$has.updated.analysis$Onset <- FALSE
+  }
+  
+  return(us)
+}
+
+
 
 
 #' Runs an USdata integrity check and returns TRUE (passed) or FALSE (failed). will also produce warning messages to highlight where the problem is located
@@ -1009,6 +1070,8 @@ AddMetaData <- function(us,s2c){
 #' print(US$Results$`Analysis_group_10000bootstraps`$Statistics)
 #' print(US$Results$`Analysis_group_10000bootstraps`$TransitionStats)
 TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = NULL){
+  require(imputeTS)
+  require(prcma)
   if(length(us$files) != length(group)){
     warning("grouping vectorn needs to have same length as number of files. can not perform analysis\n")
     return(us)
@@ -1038,7 +1101,9 @@ TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = N
     for(i in names(Report)){
       a <- Report[group == unique(group)[1],i]
       b <- Report[group == unique(group)[2],i]
-      res <- rbind(res,data.frame(name = i, p = t.test(a,b)$p.value))
+      nline <- data.frame(i, t.test(a,b)$p.value, mean(a), mean(b), mean(a) / mean(b))
+      names(nline) <- c("name","p",unique(group)[1], unique(group)[2], "FC")
+      res <- rbind(res,nline)
     }
     res$FDR <- p.adjust(res$p, method = "BY")
     us$Results[[name]]$Statistics[[r]] <- res[order(res$p),]
@@ -1110,6 +1175,61 @@ TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = N
   return(us)
 }
 
+
+#' Runs a PCA analysis on a Report group followed by a linear model analysis on PCs for group effect
+#' 
+#' @param us an object of type USData
+#' @param group a vector of characters. this vector needs to have an entry for each sample within the USdata and exactly two groups
+#' @param cumulative_proportion numeric. decides to what cumulative proportion explain variability top PCs are considere. defaults to 0.9 (=90%)
+#' @param normalize boolean should data be normalized before PCA? defaults to TRUE
+#' @param lab character. determines which US$Report element should be used for PCA. defaults to "raw"
+#' @return a statistical report
+#' @examples
+#' US <- TwoGroupAnalysis_PCA_Report(US, group = c("control","control","control","test","test","test"))
+#' US <- TwoGroupAnalysis_PCA_Report(US, group = US$meta$Condition, cumulative_proportion = 0.8, normalize = FALSE, lab = "kmeans.25")
+
+TwoGroupAnalysis_PCA_Report <- function(us,group, cumulative_proportion = 0.9, normalize = TRUE, lab = "raw"){
+  if(length(us$files) != length(group)){
+    warning("grouping vectorn needs to have same length as number of files. can not perform analysis")
+    return(us)
+  }
+  if(length(unique(group)) != 2){
+    warning("there need to be exactly two groups in the grouping vector. can not perform analysis")
+    return(us)
+  }
+  if(!(lab %in% names(us$Report))){
+    warning("invalid label to run two group analysis on PCA results on. needs to be contained in us$Report. can not perform analysis")
+    return(us)
+  }
+  
+  cdat <- us$Report[[lab]]
+  cdat <- na_replace(cdat,fill = 0)
+  
+  #normalize using Zscore
+  if(normalize){
+    cdat <- apply(cdat,MARGIN = 2, FUN = function(x){(x - mean(x)) / sd(x)})
+  }
+  #run PCA
+  pcares <- prcomp(cdat)
+  smr <- summary(pcares)
+  #determine which number of components explain the set cumulative proportion
+  n_comp <- min(which(smr$importance[3,] > cumulative_proportion))
+  
+  #set group to 0 and 1
+  grp <- as.numeric(factor(group)) -1 
+  
+  #build dataframe for linear model
+  lmdat <- data.frame(group = grp, pcares$x[,1:n_comp])
+  
+  mod <- lm(lmdat,formula = group ~ .)
+  mod.null <- lm(lmdat, formula = group ~ 1)
+  stats <- anova(mod,mod.null)
+  
+  out <- list(mod = mod,mod.null = mod.null,stats = stats)
+  return(out)
+}
+
+
 #' Plots a 2D embedding based on transition matrices of all samples contained in USdata. to plot a subset use the function SplitUSData() first. embedding can be done on multiple combined label groups
 #' 
 #' @param us an object of type USData
@@ -1143,12 +1263,13 @@ TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = N
 #' Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Dosage")
 #' 
 #' #if we have a US$meta variable that is discrete (i.e.US$meta$Group) we can create a group based coloring and also add more details such as density and the standard error of mean (sem) to the plot.
-#' Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Group", plot.denisty = TRUE, plot.sem = TRUE)
+#' Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Group", plot.density = TRUE, plot.sem = TRUE)
 #' 
 #' #lets assume the US$meta$Group has two discrete values, "control" and "test". for the previous plot we could specify the colors by
-#' Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Group", colors = c("black","#CD2990"), plot.denisty = TRUE, plot.sem = TRUE)
+#' Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Group", colors = c("black","#CD2990"), plot.density = TRUE, plot.sem = TRUE)
 Plot2DEmbedding <- function(us, reports = NULL, transitionmatrices = NULL, transitionmatrices_stabilized = NULL, normalize = TRUE, method = "umap", colorby = NULL, colors = NULL, plot.density = FALSE, plot.sem = FALSE, seed = 123){
   require(M3C)
+  require(imputeTS)
   if(is.null(reports) & is.null(transitionmatrices) & is.null(transitionmatrices_stabilized)){
     print("neiter reports nor transitionmatrices specified. using all data for 2D embedding")
     if(us$has.updated.analysis$Report){
