@@ -1073,7 +1073,7 @@ AddMetaData <- function(us,s2c){
 #' print(US$Results$`Analysis_group_10000bootstraps`$TransitionStats)
 TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = NULL){
   require(imputeTS)
-  require(prcma)
+  require(pracma)
   if(length(us$files) != length(group)){
     warning("grouping vectorn needs to have same length as number of files. can not perform analysis\n")
     return(us)
