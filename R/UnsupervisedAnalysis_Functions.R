@@ -1316,7 +1316,7 @@ TwoGroupAnalysis_PCA_Report <- function(us,group, cumulative_proportion = 0.9, n
 #' 
 #' #lets assume the US$meta$Group has two discrete values, "control" and "test". for the previous plot we could specify the colors by
 #' Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Group", colors = c("black","#CD2990"), plot.density = TRUE, plot.sem = TRUE)
-Plot2DEmbedding <- function(us, reports = NULL, transitionmatrices = NULL, transitionmatrices_stabilized = NULL, normalize = TRUE, method = "umap", colorby = NULL, colors = NULL, plot.density = FALSE, plot.sem = FALSE, seed = 123){
+Plot2DEmbedding <- function(us, reports = NULL, transitionmatrices = NULL, transitionmatrices_stabilized = NULL, normalize = TRUE, method = "umap", colorby = NULL, colors = NULL, plot.density = FALSE, plot.sem = FALSE, seed = 123, ...){
   require(M3C)
   require(imputeTS)
   if(is.null(reports) & is.null(transitionmatrices) & is.null(transitionmatrices_stabilized)){
@@ -1393,9 +1393,9 @@ Plot2DEmbedding <- function(us, reports = NULL, transitionmatrices = NULL, trans
   
   # Embedding
   if(method == "umap"){
-    res <- M3C::umap(mat, seed = seed)
+    res <- M3C::umap(mat, seed = seed, ...)
   }else if(method == "tsne"){
-    res <- M3C::tsne(mat, seed = seed)
+    res <- M3C::tsne(mat, seed = seed, ...)
   }
   
   # Build up final plot
@@ -1484,11 +1484,44 @@ PlotTransitionsStats <- function(us, analysis = NULL, labels = NULL){
 }
 
 
+#' Creates list of unique cluster values for labels. 
+#' 
+#' @param us an object of type USdata
+#' @param labels names of labeling algorithms that were used to create labels on a frame to frame basis; if = NULL, the cluster values of all labels will be returned
+#' @return list of unique cluster values for labels
+#' @examples
+#' GetUniqueClusterValues(us = US)
+#' GetUniqueClusterValues(us = US, labels = "kmeans.25")
+#' 
+GetUniqueClusterValues <- function(us, labels = NULL) {
+  if(is.null(labels)) {
+    labels <- us$label_names 
+  }
+  if(is.element(FALSE, labels %in% us$label_names)){
+    stop("One or more of the specified labels is invalid.")
+  }
+  
+  cvsForLabels <- list()
+  
+  listFiles <- us$file_names
+  
+  for (l in labels) {
+    for (f in listFiles) {
+      cvs <- unique(us$files[[f]]$data[[l]])
+      cvsForLabels[[l]] <- c(cvsForLabels[[l]], cvs)
+    }
+    cvsForLabels[[l]] <- unique(cvsForLabels[[l]])
+    cvsForLabels[[l]] <- cvsForLabels[[l]][!is.na(cvsForLabels[[l]])]
+  }
+  return(cvsForLabels)
+}
+
+
 #' Renders example videos for different labels and clusters
 #' 
 #' @param us an object of type USdata
-#' @param labels names of labeling algorithms that were used to create labels on a frame to frame basis
-#' @param cluster.values list of labeling values the example videos should be created for 
+#' @param labels names of labeling algorithms that were used to create labels on a frame to frame basis; if = NULL, videos for all labels are created
+#' @param cluster.values list of labeling values the example videos should be created for; if = NULL, videos for all cluster.values of a label are created
 #' @param path.videos path to where the input videos are stored
 #' @param video.format format of videos
 #' @param n number of examples which are picked from each video for each cluster.value; if = NULL, all appearances of a cluster.value in a video are included
@@ -1498,40 +1531,56 @@ PlotTransitionsStats <- function(us, analysis = NULL, labels = NULL){
 #' @param fps frames per second of each input video
 #' @param min.length.s minimum length of an example video to be included in the output video (defined in seconds); if = 0, all examples are included
 #' @param lag.s lag that should be added at the beginning and end of each example video (defined in seconds)
+#' @param offset.s offset of the input videos in comparison to the labeling (defined in seconds)
 #' @return NULL
 #' @examples
+#' RenderClusterVideos(us = US, path.videos = "videos\\", fps = 25)
 #' RenderClusterVideos(us = US, labels = "kmeans.25", cluster.values = "23", path.videos = "videos\\", fps = 25)
 #' RenderClusterVideos(us = US, labels = "kmeans.25", cluster.values = c("1", "17", "23"), path.videos = "videos\\", n = 2, fps = 25, min.length.s = 1, lag.s = 1)
 #' RenderClusterVideos(us = US, labels = c("kmeans.25", "rearing.classifier"), cluster.values = c("1", "23", "Supported"), path.videos = "videos\\", n = 2, output.folder = "ExampleVideos", fps = 25)
 #' RenderClusterVideos(us = US, labels = "kmeans.25", cluster.values = "23", path.videos = "videos\\", video.format = ".mp4", output.folder = "ExampleVideos", exp.name = "Exp1", fps = 25)
 #' 
-RenderClusterVideos <- function(us, labels, cluster.values, path.videos, video.format = ".mp4", n = NULL, random = TRUE, output.folder = "Examples", exp.name = "Exp", fps, min.length.s = 0, lag.s = 0){
-  
+RenderClusterVideos <- function(us, labels = NULL, cluster.values= NULL, path.videos, video.format = ".mp4", n = NULL, random = TRUE, output.folder = "Examples", exp.name = "Exp", fps, min.length.s = 0, lag.s = 0, offset.s = 0){
+  require(imputeTS)
+  # Some sanity checks on the input
   if(is.null(us$label_names)){
-    stop("Object has no labeling data.")
+    stop("US object has no labeling data.")
+  }
+  if(is.null(us$file_names)){
+    stop("US object contains no files.")
+  }
+  if(is.null(labels)) {
+    labels <- us$label_names
   }
   if(is.element(FALSE, labels %in% us$label_names)){
     stop("One or more of the specified labels is invalid.")
   }
-  if(is.null(fps)){
-    stop("Fps (frames per second) is not provided.")
-  }
-  
+
+  # Get list of input videos
   list_videos <- list.files(path = path.videos, pattern = video.format, all.files = TRUE)
   list_videos <- stringr::str_remove(list_videos, video.format)
+  list_videos <- list_videos[]
   
+  # Create output folder
   dir.create(output.folder)
+  
+  # Get list of possible cluster values for each label
+  list.cluster.values <- GetUniqueClusterValues(us, labels = labels)
   
   for (l in labels) {
     
-    # Check which cluster values correspond to this label
-    clusters <- NULL
-    ind_c <- cluster.values %in% unique(us$files[[v]]$data[[l]])
-    clusters <- cluster.values[ind_c]
+    # Get cluster values for current label
+    if(is.null(cluster.values)) {
+      clusters <- list.cluster.values[[l]]
+    } else {
+      clusters <- NULL
+      ind_c <- cluster.values %in% list.cluster.values[[l]]
+      clusters <- cluster.values[ind_c]
+    }
     
     for (c in clusters) {
       
-      # Create temporary folder for each cluster
+      # Create temporary folder for each cluster (will be deleted later)
       dir.create("tmp")
       
       for (v in list_videos) {
@@ -1554,33 +1603,25 @@ RenderClusterVideos <- function(us, labels, cluster.values, path.videos, video.f
         v <- us$file_names[grepl(v, us$file_names, fixed = TRUE)]
         
         # Get list of onset values for current cluster
-        list_onsets <- NULL
-        if (is.null(n)) {
-          list_onsets <- us$files[[v]]$OnSetData[[l]][[c]]
-        } else if (length(us$files[[v]]$OnSetData[[l]][[c]]) < n) {
-          list_onsets <- us$files[[v]]$OnSetData[[l]][[c]]
-        } else {
-          if (random) {
-            list_onsets <- us$files[[v]]$OnSetData[[l]][[c]][sample(c(1:length(us$files[[v]]$OnSetData[[l]][[c]])), size=n)]
-          } else {
-            list_onsets <- us$files[[v]]$OnSetData[[l]][[c]][c(1:n)]
-          }
-        }
+        list_onsets <- us$files[[v]]$OnSetData[[l]][[c]]
         
         # Get pairs of start and end frames for different examples
         examples <- data.frame()
-        start = NULL
-        end = NULL
         for (i in 1:length(list_onsets)) {
-          start = list_onsets[i]
-          for (j in (start+1):length(us$files[[v]]$data[[l]])) {
-            if (us$files[[v]]$data[[l]][start] != us$files[[v]]$data[[l]][[j]]) {
-              end = j-1
+          start <- NULL
+          end <- length(us$files[[v]]$data[[l]])
+          start <- list_onsets[i]
+          for (j in (start):length(us$files[[v]]$data[[l]])) {
+            if (us$files[[v]]$data[[l]][start] != imputeTS::na_replace(us$files[[v]]$data[[l]][[j]],0)) {
+              end <- j-1
               break
             }
           }
           examples[i, 1:2] <- c(start, end) 
         }
+        
+        # Make sure that all examples are at least 1 frame long
+        examples <- examples[examples[, 1] != examples[, 2], ]
         
         # Convert frames into seconds
         examples <- examples/fps
@@ -1592,13 +1633,26 @@ RenderClusterVideos <- function(us, labels, cluster.values, path.videos, video.f
         }
         
         # Check if there are examples left
-        if (dim(examples)[1] == 0) {
+        if (nrow(examples) == 0) {
           break
         }
         
         # Add lag (in seconds!) to examples
-        examples[, 1] <- examples[, 1] - lag.s
-        examples[, 2] <- examples[, 2] + lag.s
+        examples[, 1] <- pmax(examples[, 1] - lag.s, 0)
+        examples[, 2] <- pmin(examples[, 2] + lag.s, length(us$files[[v]]$data[[l]]))
+        
+        # Create subsample (if n != NULL)
+        if (!is.null(n)) { 
+          if (nrow(examples) > n) {
+            if (random) {
+              examples <- examples[sample(c(1:nrow(examples))), ]
+            }
+            examples <- examples[1:n, ]
+          }
+        }
+        
+        # Add offset (in seconds!)
+        examples <- examples + offset.s
         
         # Create example videos and save them into the temp folder
         input <- paste(path.videos, v, ".mp4", sep = "")
