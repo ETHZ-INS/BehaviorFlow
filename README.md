@@ -1,23 +1,3 @@
-- [Analysis of unsupervised clustering results](#analysis-of-unsupervised-clustering-results)
-  * [building the data object](#building-the-data-object)
-    + [Loading the data](#loading-the-data)
-      - [Loading from multiple CSV files](#loading-from-multiple-csv-files)
-      - [Loading from TrackingData (DLC Analyzer)](#loading-from-trackingdata--dlc-analyzer-)
-    + [Exploring the data structure of USData](#exploring-the-data-structure-of-usdata)
-    + [Adding more data to an existing USData object](#adding-more-data-to-an-existing-usdata-object)
-      - [Adding new labels to existing files](#adding-new-labels-to-existing-files)
-      - [Adding new files](#adding-new-files)
-    + [Removing files or labels from the dataset](#removing-files-or-labels-from-the-dataset)
-  * [Processing the data and runing basic analyses](#processing-the-data-and-runing-basic-analyses)
-    + [Smoothing and creating a basic report](#smoothing-and-creating-a-basic-report)
-    + [Calculating Transitionmatrices and ploting behavior flow](#calculating-transitionmatrices-and-ploting-behavior-flow)
-    + [Mapping different label groups to each other](#mapping-different-label-groups-to-each-other)
-  * [Grouped analyses](#grouped-analyses)
-    + [Adding metadata](#adding-metadata)
-    + [Statistical two group analysis](#statistical-two-group-analysis)
-    + [2D embedding of transition data](#2d-embedding-of-transition-data)
-    + [2D embedding of data from multiple datasets](#2d-embedding-of-data-from-multiple-datasets)
-
 Analysis of unsupervised clustering results
 ===========================================
 
@@ -760,10 +740,10 @@ str(US$Results$`CSI-vs-Control`)
     ##  $ TransitionStats:List of 2
     ##   ..$ rear.classifier:List of 6
     ##   .. ..$ distance   : num 5.92
-    ##   .. ..$ bootstraps : num [1:1000] 16 17.8 25.7 10.3 14.9 ...
-    ##   .. ..$ percentile : num 17.9
-    ##   .. ..$ sigma      : num -0.963
-    ##   .. ..$ p.value    : num 0.832
+    ##   .. ..$ bootstraps : num [1:1000] 27.28 2.55 7.35 4.12 12.07 ...
+    ##   .. ..$ percentile : num 17.5
+    ##   .. ..$ sigma      : num -0.948
+    ##   .. ..$ p.value    : num 0.828
     ##   .. ..$ transitions:'data.frame':   9 obs. of  7 variables:
     ##   .. .. ..$ from   : chr [1:9] "Supported" "Unsupported" "None" "Unsupported" ...
     ##   .. .. ..$ to     : chr [1:9] "Unsupported" "Supported" "Unsupported" "None" ...
@@ -774,10 +754,10 @@ str(US$Results$`CSI-vs-Control`)
     ##   .. .. ..$ FDR    : num [1:9] 0.44 0.44 1 1 1 ...
     ##   ..$ kmeans.25      :List of 6
     ##   .. ..$ distance   : num 143
-    ##   .. ..$ bootstraps : num [1:1000] 99.4 85.4 99.5 90 89.5 ...
+    ##   .. ..$ bootstraps : num [1:1000] 96.1 94.5 108 93.4 110 ...
     ##   .. ..$ percentile : num 99.9
-    ##   .. ..$ sigma      : num 6.45
-    ##   .. ..$ p.value    : num 5.71e-11
+    ##   .. ..$ sigma      : num 6.42
+    ##   .. ..$ p.value    : num 6.71e-11
     ##   .. ..$ transitions:'data.frame':   625 obs. of  7 variables:
     ##   .. .. ..$ from   : chr [1:625] "16" "14" "3" "3" ...
     ##   .. .. ..$ to     : chr [1:625] "14" "3" "21" "25" ...
@@ -840,7 +820,7 @@ the two groups. Results can be visualized using:
 PlotTransitionsStats(US, labels = "kmeans.25")
 ```
 
-![](README_files/figure-markdown_github/unnamed-chunk-40-1.png)
+![](README_files/figure-markdown_github/unnamed-chunk-39-1.png)
 
 ### 2D embedding of transition data
 
@@ -859,7 +839,37 @@ Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Condition", col
 
     ## done.
 
+![](README_files/figure-markdown_github/unnamed-chunk-40-1.png)
+
+*Tip: Default the function will perform a UMAP embedding. To perform a
+t-sne embedding instead we can use the function with the parameter:*
+`method = "tsne"` *This will automatically perform a t-sne embedding for
+which we can also change the perplexity manually (see below)*
+
+2D embedding works better the more distinct samples we present. Keep in
+mind that embedding with very low numbers will not yield good results,
+and at some point the algorithms will refuse to work with low number
+sizes. For tsne we can work with lower samples by specifying the
+´perplex´ to be small:
+
+``` r
+US_small <- SplitUSData(US,include = US$file_names[1:10])
+Plot2DEmbedding(US_small, transitionmatrices = "kmeans.25", colorby = "Condition", color = c("grey","red"), method = "tsne", perplex = 3)
+```
+
+    ## [1] "including transitionmatrix: kmeans.25"
+
+    ## ***t-SNE wrapper function***
+
+    ## running...
+
+    ## done.
+
 ![](README_files/figure-markdown_github/unnamed-chunk-41-1.png)
+
+while this embedding will work with lower numbers as you may note that
+the quality is getting much worse. It is highly recommended to use
+sample sizes of \~ \> 20 if possible for a decent 2D embedding
 
 ### 2D embedding of data from multiple datasets
 
