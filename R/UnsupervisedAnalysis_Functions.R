@@ -281,6 +281,50 @@ AddFromBsoid <- function(us, path, lab_name = "BSOID", cut_start = 0, delay =0){
 }
 
 
+#' Adds VAME data from a folder to an existing object of type USData. Will first determine if there exists a file with a comparable name for each sample in USData in the folder and then add it to the USData. 
+#' If no file is found a NA vector will be added to this sample.
+#' 
+#' Prerequisite: All npy-files containing the clustering results need to be stored in one folder.
+#' 
+#' @param us an object of type USData
+#' @param path a character. the path to the folder containing all the VAME results
+#' @param lab_name a character. name that will be used for the label in USData. Defaults to "VAME"
+#' @param cut_start an integer. defines if the first cut_start (integer) frames should be removed from VAME
+#' @param delay an integer. defines if the first delay (integer) frames of each file should not get a label from VAME
+#' @return An object of type USData
+#' @examples
+#' US <- AddFromVAME(us = US,path = "C:/PATHTOVAMEFOLDER", lab_name = "VAME", cut_start = 0, delay = 15)
+AddFromVAME <- function(us, path, lab_name = "VAME", cut_start = 0, delay = 0){
+  np <- import("numpy")
+  files <- list.files(path)
+  
+  for(i in us$file_names){
+    us$files[[i]]$raw_data[[lab_name]] <- rep(NA,us$files[[i]]$n_frames)
+    us$files[[i]]$data[[lab_name]] <- rep(NA,us$files[[i]]$n_frames)
+    range_orig <- 1:us$files[[i]]$n_frames
+    
+    if(length(grep(stringr::str_replace(i, ".csv", ""), x = files)) == 1){
+      print(paste("found file:",i, "in folder, adding" , sep = " "))
+      path_npy <- paste(path, files[grep(stringr::str_replace(i, ".csv", ".npy"), x = files)], sep = "")
+      dat <- np$load(path_npy)
+      dat <- as.character(dat)
+      range_VAME <- cut_start:length(dat)
+      range_VAME <- range_VAME[range_VAME %in% range_orig]
+      range_file <- delay:(length(range_VAME)+delay-1)
+      range_file <- range_file[range_file %in% range_orig]
+      
+      if(length(range_VAME)!= 0){
+        us$files[[i]]$raw_data[[lab_name]][range_file] <- dat[range_VAME]
+        us$files[[i]]$data[[lab_name]][range_file] <- dat[range_VAME]
+      }
+    }else{
+      warning(paste("file:",i, "not found in folder, adding NA vector\n" , sep = " "))
+    }
+  }
+  us$label_names <- append(us$label_names, lab_name)
+  return(us)
+}
+
 
 #' Calculates a number of metrics for an object of type USData. these include a label usage report (time and occurences) as well all onset frames for each occurence
 #' 
