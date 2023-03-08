@@ -193,7 +193,7 @@ AddFromTrackingObject <- function(us, ts){
         }
       }
     }else{
-        print(paste("adding data for file:", i, sep = " "))
+      print(paste("adding data for file:", i, sep = " "))
       us$files[[i]]$data <- ts[[i]]$labels
       us$files[[i]]$raw_data <- ts[[i]]$labels
       us$meta <- plyr::rbind.fill(us$meta,data.frame(filename = i))
@@ -206,7 +206,7 @@ AddFromTrackingObject <- function(us, ts){
   return(us)
 }
 
-  
+
 #' sums a numeric vector x over a window (integer)
 #' 
 #' @param x a numeric or logical vector
@@ -247,10 +247,11 @@ SmoothLabel <- function(x, integration_period){
 #' @param path a character. the path to the folder containing all the BSOID results
 #' @param lab_name a character. name that will be used for the label in USData. Defaults to "BSOID"
 #' @param cut_start an integer. defines if the first cut_start (integer) frames should be removed from BSOID
+#' @param delay an integer. defines if the first delay (integer) frames of each file should not get a label from BSOID
 #' @return An object of type USData
 #' @examples
 #' US <- AddFromBsoid(us = US,path = "C:/PATHTOBSOIDFOLDER", lab_name = "BSOID", cut_start = 30)
-AddFromBsoid <- function(us, path, lab_name = "BSOID", cut_start = 0){
+AddFromBsoid <- function(us, path, lab_name = "BSOID", cut_start = 0, delay =0){
   files <- list.files(path)
   
   for(i in us$file_names){
@@ -261,14 +262,15 @@ AddFromBsoid <- function(us, path, lab_name = "BSOID", cut_start = 0){
     if(length(grep(i, x = files)) == 1){
       print(paste("found file:",i, "in folder, adding" , sep = " "))
       dat <- read.table(paste(path, grep(i, x = files,value = TRUE), sep = "/"), sep = ",", header = T)
-      for(j in 1:nrow(dat)){
-        dat$B.SOiD.labels <- as.character(dat$B.SOiD.labels)
-        range <- (dat[j,]$Start.time..frames. + 1 - cut_start) : (dat[j,]$Start.time..frames. - cut_start + dat[j,]$Run.lengths) 
-        range <- range[range %in% range_orig]
-        if(length(range)!= 0){
-        us$files[[i]]$raw_data[[lab_name]][range] <- dat[j,"B.SOiD.labels"]
-        us$files[[i]]$data[[lab_name]][range] <- dat[j,"B.SOiD.labels"]
-        }
+      dat <- dat[-c(1,2), ]
+      dat$B.SOiD.labels <- as.character(dat$B.SOiD.labels)
+      range_BSOID <- cut_start:dim(dat)[1]
+      range_BSOID <- range_BSOID[range_BSOID %in% range_orig]
+      range_file <- delay:(length(range_BSOID)+delay)
+      range_file <- range_file[range_file %in% range_orig]
+      if(length(range_BSOID)!= 0){
+        us$files[[i]]$raw_data[[lab_name]][range_file] <- dat[range_BSOID,"B.SOiD.labels"]
+        us$files[[i]]$data[[lab_name]][range_file] <- dat[range_BSOID,"B.SOiD.labels"]
       }
     }else{
       warning(paste("file:",i, "not found in folder, adding NA vector\n" , sep = " "))
@@ -291,28 +293,28 @@ CalculateMetrics <- function(us){
   for(i in names(us$files)){
     d <- us$files[[i]]
     d$Report <- list()
-      for(j in names(d$data)){
-        d$Report[[j]] <- list()
-        c <- na.omit(d$data[[j]])
-        for(k in unique(c)){
+    for(j in names(d$data)){
+      d$Report[[j]] <- list()
+      c <- na.omit(d$data[[j]])
+      for(k in unique(c)){
         c2 <- c == k
         d$Report[[j]][[paste(k,"nframes", sep = ".")]] <- sum(c2)
         d$Report[[j]][[paste(k,"count", sep = ".")]] <- ceiling(sum((c2[2:length(c2)]!= c2[1:length(c2)-1])) / 2)
       }
-      }
+    }
     us$files[[i]] <- d
   }
   if(is.null(us$Report)){
-  us$Report <- list()
+    us$Report <- list()
   }
   for(j in us$label_names){
     us$Report[[j]] <- data.frame()
   }
   for(i in names(us$files)){
     for(j in names(us$files[[i]]$Report)){
-    add <- data.frame(file = i,us$files[[i]]$Report[[j]])
-    names(add) <- c("file",names(us$files[[i]]$Report[[j]]))
-    us$Report[[j]] <- plyr::rbind.fill(us$Report[[j]], data.frame(add))
+      add <- data.frame(file = i,us$files[[i]]$Report[[j]])
+      names(add) <- c("file",names(us$files[[i]]$Report[[j]]))
+      us$Report[[j]] <- plyr::rbind.fill(us$Report[[j]], data.frame(add))
     }
   }
   for(j in us$label_names){
@@ -348,12 +350,12 @@ AddTransitionMatrixData <- function(us, labels = NULL){
     for(i in us$files){
       lab <- append(lab,i$data[[label]])
     }
-      lev <- unique(na.omit(lab))
-  
+    lev <- unique(na.omit(lab))
+    
     #create ordered and complete transition matrix for each files
     for(i in names(us$files)){
       lab <- us$files[[i]]$data[[label]]
-
+      
       transvector <- na.omit(lab[lab[2:length(lab)] != lab[1:(length(lab)-1)]])
       transmatrix <- table(transvector[1:(length(transvector)-1)],transvector[2:length(transvector)])
       for(j in lev){
@@ -368,15 +370,15 @@ AddTransitionMatrixData <- function(us, labels = NULL){
           colnames(transmatrix)[ncol(transmatrix)] <- j
         }
       }
-        transmatrix <- transmatrix[lev,lev]
-        
-        if(is.null(us$files[[i]]$transmatrix)){
-          us$files[[i]]$transmatrix <- list()
-          us$files[[i]]$transmatrix_norm <- list()
-        }
-        us$files[[i]]$transmatrix[[label]] <- transmatrix
-        us$files[[i]]$transmatrix_norm[[label]] <- t(apply(transmatrix, MARGIN = 1, FUN = function(x){if(sum(x) > 0){x / sum(x)}else{x}}))
-              }
+      transmatrix <- transmatrix[lev,lev]
+      
+      if(is.null(us$files[[i]]$transmatrix)){
+        us$files[[i]]$transmatrix <- list()
+        us$files[[i]]$transmatrix_norm <- list()
+      }
+      us$files[[i]]$transmatrix[[label]] <- transmatrix
+      us$files[[i]]$transmatrix_norm[[label]] <- t(apply(transmatrix, MARGIN = 1, FUN = function(x){if(sum(x) > 0){x / sum(x)}else{x}}))
+    }
   }
   us$has.updated.analysis$Transmat <- TRUE
   us$transitionmatrix_names <- labels
@@ -572,18 +574,18 @@ AddConfusionMatrix <- function(us, files = NULL, from = NULL, to = NULL){
   
   for(f in from){
     for(t in to[!to %in% f]){
-        name <- paste(f, t, sep = "-")
-        tr <- NULL
-        comp <- NULL
-        for(i in us$files[files]){
-          tr <- append(tr,i$data[[f]])
-          comp <- append(comp,i$data[[t]])
-        }
-  
+      name <- paste(f, t, sep = "-")
+      tr <- NULL
+      comp <- NULL
+      for(i in us$files[files]){
+        tr <- append(tr,i$data[[f]])
+        comp <- append(comp,i$data[[t]])
+      }
+      
       Results <- table(from = tr, to = comp)
-    if(is.null(us$ConfusionMatrix)){
-      us$ConfusionMatrix <- list()
-      us$ConfusionMatrix_norm <- list()
+      if(is.null(us$ConfusionMatrix)){
+        us$ConfusionMatrix <- list()
+        us$ConfusionMatrix_norm <- list()
       }
       us$ConfusionMatrix[[name]] <- Results
       us$ConfusionMatrix_norm[[name]] <-  t(apply(Results,MARGIN = 1, FUN = function(x){x / sum(x)}))
@@ -983,13 +985,13 @@ PlotBehaviorFlow_Delta <- function(us,grouping, lab, method = "absolute"){
     warning("Improper grouping vector. needs to be a logical (True/False) vector with one entry per sample\n")
     return(NULL)
   }
-
-    
-    
+  
+  
+  
   #define groups
   g1 <- us$file_names[grouping]
   g2 <- us$file_names[!grouping]
-
+  
   #build avearged transition matrix for group1 and group2
   mat1 <- 0
   mat2 <- 0
@@ -1114,64 +1116,64 @@ TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = N
   us$Results[[name]]$TransitionStats <- list()
   for(r in lab){
     transmat <- list()
-  for(i in names(us$files)){
-    transmat[[i]] <- us$files[[i]]$transmatrix[[r]]
-  }
-  
+    for(i in names(us$files)){
+      transmat[[i]] <- us$files[[i]]$transmatrix[[r]]
+    }
+    
     # bootstrapping based analysis of inter group distance of mean transition matrix values
-  A <- transmat[group == unique(group)[1]]
-  B  <- transmat[group == unique(group)[2]]
-  
-  a <- do.call(cbind, A)
-  a <- array(a, dim=c(dim(A[[1]]), length(A)))
-  a <- apply(a, c(1, 2), mean, na.rm = TRUE)
-  
-  b <- do.call(cbind, B)
-  b <- array(b, dim=c(dim(B[[1]]), length(B)))
-  b <- apply(b, c(1, 2), mean, na.rm = TRUE)
-  distance <- sum(abs(a-b))
-  
-  bootstraps <- NULL
-  for(i in 1:n_bootstraps){
-    grp <- sample(group)
-    A <- transmat[grp == unique(group)[1]]
-    B  <- transmat[grp == unique(group)[2]]
+    A <- transmat[group == unique(group)[1]]
+    B  <- transmat[group == unique(group)[2]]
+    
     a <- do.call(cbind, A)
     a <- array(a, dim=c(dim(A[[1]]), length(A)))
     a <- apply(a, c(1, 2), mean, na.rm = TRUE)
+    
     b <- do.call(cbind, B)
     b <- array(b, dim=c(dim(B[[1]]), length(B)))
     b <- apply(b, c(1, 2), mean, na.rm = TRUE)
-    bootstraps <- append(bootstraps,sum(abs(a-b)))
-  }
-  
-  # t.test based statistics on Transition data (i.e do specific transitions incerase or decrease in test vs control?)
-  lev <- rownames(do.call(cbind, A))
-  transitions <- NULL
-  for(i in lev){
-    for(j in lev){
-      A <- lapply(transmat[group == unique(group)[1]],FUN = function(x){x[i,j]})
-      B <- lapply(transmat[group == unique(group)[2]],FUN = function(x){x[i,j]})
-      tryCatch({
-      test <- t.test(unlist(A),unlist(B))
-      transitions <- rbind(transitions, data.frame(from = i, to = j, p.value = test$p.value, A = mean(unlist(A)), B = mean(unlist(B)) ,FC = mean(unlist(A)) / mean(unlist(B))))
-      }, error = function(e){
-      transitions <- rbind(transitions, data.frame(from = i, to = j, p.value = NA, A = mean(unlist(A)), B = mean(unlist(B)) ,FC = NA))
-      })
+    distance <- sum(abs(a-b))
+    
+    bootstraps <- NULL
+    for(i in 1:n_bootstraps){
+      grp <- sample(group)
+      A <- transmat[grp == unique(group)[1]]
+      B  <- transmat[grp == unique(group)[2]]
+      a <- do.call(cbind, A)
+      a <- array(a, dim=c(dim(A[[1]]), length(A)))
+      a <- apply(a, c(1, 2), mean, na.rm = TRUE)
+      b <- do.call(cbind, B)
+      b <- array(b, dim=c(dim(B[[1]]), length(B)))
+      b <- apply(b, c(1, 2), mean, na.rm = TRUE)
+      bootstraps <- append(bootstraps,sum(abs(a-b)))
+    }
+    
+    # t.test based statistics on Transition data (i.e do specific transitions incerase or decrease in test vs control?)
+    lev <- rownames(do.call(cbind, A))
+    transitions <- NULL
+    for(i in lev){
+      for(j in lev){
+        A <- lapply(transmat[group == unique(group)[1]],FUN = function(x){x[i,j]})
+        B <- lapply(transmat[group == unique(group)[2]],FUN = function(x){x[i,j]})
+        tryCatch({
+          test <- t.test(unlist(A),unlist(B))
+          transitions <- rbind(transitions, data.frame(from = i, to = j, p.value = test$p.value, A = mean(unlist(A)), B = mean(unlist(B)) ,FC = mean(unlist(A)) / mean(unlist(B))))
+        }, error = function(e){
+          transitions <- rbind(transitions, data.frame(from = i, to = j, p.value = NA, A = mean(unlist(A)), B = mean(unlist(B)) ,FC = NA))
+        })
       }
-  }
-  names(transitions)[4:5] <- c(paste(unique(group)[1]),paste(unique(group)[2]))
-  transitions[is.nan(transitions$p.value),c("p.value","FC")] <- c(NA,NA)
-  transitions$FDR <- p.adjust(transitions$p.value, method = "BY")
-  transitions <- transitions[order(transitions$p.value),]
-  
-  # Add Results to USData
-  us$Results[[name]]$TransitionStats[[r]]$distance <- distance
-  us$Results[[name]]$TransitionStats[[r]]$bootstraps <- bootstraps
-  us$Results[[name]]$TransitionStats[[r]]$percentile <- sum(bootstraps < distance) / length(c(bootstraps,distance)) * 100
-  us$Results[[name]]$TransitionStats[[r]]$sigma <- (distance - mean(bootstraps)) / sd(bootstraps)
-  us$Results[[name]]$TransitionStats[[r]]$p.value <- (1 - pracma::erf(us$Results[[name]]$TransitionStats[[r]]$sigma / sqrt(2))) / 2
-  us$Results[[name]]$TransitionStats[[r]]$transitions <- transitions
+    }
+    names(transitions)[4:5] <- c(paste(unique(group)[1]),paste(unique(group)[2]))
+    transitions[is.nan(transitions$p.value),c("p.value","FC")] <- c(NA,NA)
+    transitions$FDR <- p.adjust(transitions$p.value, method = "BY")
+    transitions <- transitions[order(transitions$p.value),]
+    
+    # Add Results to USData
+    us$Results[[name]]$TransitionStats[[r]]$distance <- distance
+    us$Results[[name]]$TransitionStats[[r]]$bootstraps <- bootstraps
+    us$Results[[name]]$TransitionStats[[r]]$percentile <- sum(bootstraps < distance) / length(c(bootstraps,distance)) * 100
+    us$Results[[name]]$TransitionStats[[r]]$sigma <- (distance - mean(bootstraps)) / sd(bootstraps)
+    us$Results[[name]]$TransitionStats[[r]]$p.value <- (1 - pracma::erf(us$Results[[name]]$TransitionStats[[r]]$sigma / sqrt(2))) / 2
+    us$Results[[name]]$TransitionStats[[r]]$transitions <- transitions
   }
   
   return(us)
@@ -1349,7 +1351,7 @@ Plot2DEmbedding <- function(us, reports = NULL, transitionmatrices = NULL, trans
   if(check){
     return(NULL)
   }
-
+  
   # Build up data to be used for 2D Embedding by flattening all selected reports, transitionmatrices and normalized transitionmatices and building up a matrix with samples as rows and features as columns
   mat <- data.frame()
   if(!is.null(reports)){
@@ -1455,9 +1457,9 @@ PlotTransitionsStats <- function(us, analysis = NULL, labels = NULL){
     analysis <- names(us$Results)
   }
   if(is.null(labels)){
-      for(i in analysis){
-        labels <- unique(c(labels, names(us$Results[[i]]$TransitionStats)))
-      }
+    for(i in analysis){
+      labels <- unique(c(labels, names(us$Results[[i]]$TransitionStats)))
+    }
   }
   
   ps <- list()
@@ -1468,11 +1470,11 @@ PlotTransitionsStats <- function(us, analysis = NULL, labels = NULL){
       sigma <- us$Results[[i]]$TransitionStats[[j]]$sigma
       percentile <- us$Results[[i]]$TransitionStats[[j]]$percentile
       p1 <- ggplot(bdat,aes(distance)) + 
-          geom_histogram(color = "black", fill = "gray70", bins = 30) + 
-          geom_vline(xintercept = dis, color = "red") +
-          theme_bw() + 
-          ggtitle(paste(i,j, sep = " ")) 
-          theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+        geom_histogram(color = "black", fill = "gray70", bins = 30) + 
+        geom_vline(xintercept = dis, color = "red") +
+        theme_bw() + 
+        ggtitle(paste(i,j, sep = " ")) 
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
       p2 <- ggplot() + 
         ggtitle(paste("percentile:", signif(percentile,digits = 4), "\n", "sigma:", round(sigma,digits = 2), "\n", "p.value:", signif((1 - pracma::erf(sigma / sqrt(2))) / 2,digits = 3) , sep = " ")) + 
         theme_minimal() +
@@ -1555,7 +1557,7 @@ RenderClusterVideos <- function(us, labels = NULL, cluster.values= NULL, path.vi
   if(is.element(FALSE, labels %in% us$label_names)){
     stop("One or more of the specified labels is invalid.")
   }
-
+  
   # Get list of input videos
   list_videos <- list.files(path = path.videos, pattern = video.format, all.files = TRUE)
   list_videos <- stringr::str_remove(list_videos, video.format)
@@ -1679,4 +1681,3 @@ RenderClusterVideos <- function(us, labels = NULL, cluster.values= NULL, path.vi
     }
   }
 }
-
