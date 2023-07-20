@@ -1,4 +1,4 @@
-- [Analysis of unsupervised clustering results](#analysis-of-unsupervised-clustering-results)
+- [Behavior Flow](#Behavior-Flow)
   * [building the data object](#building-the-data-object)
     + [Loading the data](#loading-the-data)
       - [Loading from multiple CSV files](#loading-from-multiple-csv-files)
@@ -19,7 +19,7 @@
     + [2D embedding of data from multiple datasets](#2d-embedding-of-data-from-multiple-datasets)
 
 
-Analysis of unsupervised clustering results
+Behavior Flow
 ===========================================
 
 This package contains code that enables efficient meta analyses of
