@@ -14,7 +14,7 @@
     + [Mapping different label groups to each other](#mapping-different-label-groups-to-each-other)
   * [Grouped analyses](#grouped-analyses)
     + [Adding metadata](#adding-metadata)
-    + [Behavior Flow Analysis (statistical two group analysis)](#Behavior-Flow-Analysis-(statistical-two-group-analysis))
+    + [Behavior Flow Analysis](#Behavior-Flow-Analysis)
     + [2D embedding of transition data](#2d-embedding-of-transition-data)
     + [2D embedding of data from multiple datasets](#2d-embedding-of-data-from-multiple-datasets)
 
@@ -708,7 +708,7 @@ PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans
 
 ![](README_files/figure-markdown_github/unnamed-chunk-34-1.png)
 
-### Behavior Flow Analysis (statistical two group analysis)
+### Behavior Flow Analysis
 
 What we were plotting before were average metrics that do not take any
 variability into consideration, so we have to be careful to not
