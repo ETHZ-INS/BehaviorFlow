@@ -14,7 +14,7 @@
     + [Mapping different label groups to each other](#mapping-different-label-groups-to-each-other)
   * [Grouped analyses](#grouped-analyses)
     + [Adding metadata](#adding-metadata)
-    + [Statistical two group analysis](#statistical-two-group-analysis)
+    + [Behavior Flow Analysis (statistical two group analysis)](#Behavior-Flow-Analysis-(statistical-two-group-analysis))
     + [2D embedding of transition data](#2d-embedding-of-transition-data)
     + [2D embedding of data from multiple datasets](#2d-embedding-of-data-from-multiple-datasets)
 
@@ -30,8 +30,8 @@ sample can have labeling data from many different sources (i.e different
 clustering algorithms). In addition metadata can be added to the object
 that describes experimental design and grouping variables. The data
 object can then be passed to a number of helper functions that can
-perform a variety of analyses such as clustering-to-clustering mapping,
-2D embedding of samples, Two group analyses between sets of samples and
+perform a variety of analyses such as clustering-to-clustering mapping, 
+Behavior Flow Analysis (BFA) between two groups, Behavior Flow Fingerprinting (BFF) and
 many more.
 
 All the code contained in this markdown file is written so it can be
@@ -708,7 +708,7 @@ PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans
 
 ![](README_files/figure-markdown_github/unnamed-chunk-34-1.png)
 
-### Statistical two group analysis
+### Behavior Flow Analysis (statistical two group analysis)
 
 What we were plotting before were average metrics that do not take any
 variability into consideration, so we have to be careful to not
