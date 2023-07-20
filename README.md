@@ -14,9 +14,9 @@
     + [Mapping different label groups to each other](#mapping-different-label-groups-to-each-other)
   * [Grouped analyses](#grouped-analyses)
     + [Adding metadata](#adding-metadata)
-    + [Behavior Flow Analysis](#Behavior-Flow-Analysis)
-    + [2D embedding of transition data](#2d-embedding-of-transition-data)
-    + [2D embedding of data from multiple datasets](#2d-embedding-of-data-from-multiple-datasets)
+    + [statiatical two group comparisons and Behavior Flow Analysis](#statiatical-two-group-comparisons-and-Behavior-Flow-Analysis)
+    + [Behavior Flow Fingerprinting](#Behavior-Flow-Fingerprinting)
+    + [Behavior Flow Fingerprinting across multiple datasets](#Behavior-Flow-Fingerprinting-across-multiple-datasets)
 
 
 Behavior Flow
@@ -31,7 +31,8 @@ clustering algorithms). In addition metadata can be added to the object
 that describes experimental design and grouping variables. The data
 object can then be passed to a number of helper functions that can
 perform a variety of analyses such as clustering-to-clustering mapping, 
-Behavior Flow Analysis (BFA) between two groups, Behavior Flow Fingerprinting (BFF) and
+Behavior Flow Analysis (BFA; statiatical two group comparisons) between two groups, 
+Behavior Flow Fingerprinting (BFF; 2D embedding with a per sample resolution) and
 many more.
 
 All the code contained in this markdown file is written so it can be
@@ -708,7 +709,7 @@ PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans
 
 ![](README_files/figure-markdown_github/unnamed-chunk-34-1.png)
 
-### Behavior Flow Analysis
+### statiatical two group comparisons and Behavior Flow Analysis
 
 What we were plotting before were average metrics that do not take any
 variability into consideration, so we have to be careful to not
@@ -832,7 +833,7 @@ head(US$Results$`CSI-vs-Control`$TransitionStats$kmeans.25$transitions,10)
 Indeed we see that a number of transitions are significant between CSI
 and Control even after FDR correction
 
-And finally the package includes a bootstrapping method that
+And finally the package includes a bootstrapping method which we termed Behavior Flow Analysis (BFA) that
 statistically assesses if there is a group difference between CSI and
 Control when considering the overall difference in behavior flow between
 the two groups. Results can be visualized using:
@@ -843,10 +844,13 @@ PlotTransitionsStats(US, labels = "kmeans.25")
 
 ![](README_files/figure-markdown_github/unnamed-chunk-39-1.png)
 
-### 2D embedding of transition data
+### Behavior Flow Fingerprinting
 
-To further gain an idea of how variable and different our groups are
-across all files based on transitions we can use:
+In this section we introduce the concept of Behavior Flow Figerprinting (BFF).
+This method will look at all transitions for each sample and try to figure out how close each sample is to other samples. 
+we can further color by treatment variables that can be categorical or continuous.
+the resulting 2D embedding will be much better understandable for us to see how close groups are to each other and how many outliers are present in general.
+To perform a BFF across all files based on transitions we can use:
 
 ``` r
 Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Condition", color = c("grey","red"), plot.sem = T)
@@ -892,7 +896,7 @@ while this embedding will work with lower numbers as you may note that
 the quality is getting much worse. It is highly recommended to use
 sample sizes of \~ \> 20 if possible for a decent 2D embedding
 
-### 2D embedding of data from multiple datasets
+### Behavior Flow Fingerprinting across multiple datasets
 
 Often we might want to compare data across multiple datasets and see if
 there are any phenotypes that are close to each other. We start by
@@ -937,7 +941,7 @@ Swim = forced swim stress, Yohimbin = Yohimbine injection
 (pharmacolgically induced stress))
 
 We start by embedding data of the control groups to see if there are any
-inter-experiment differences
+inter-experiment differences using BFF
 
 ``` r
 US2 <- SplitUSData(US_multi,select = US_multi$meta$Condition == "Control")
