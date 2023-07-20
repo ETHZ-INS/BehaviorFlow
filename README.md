@@ -22,18 +22,7 @@
 Behavior Flow
 ===========================================
 
-This package contains code that enables efficient meta analyses of
-unsupervised behavior analysis results. The package works by first
-building a data object that contains unsupervised data (called label
-data in this package) from multiple distinct recordings/samples. each
-sample can have labeling data from many different sources (i.e different
-clustering algorithms). In addition metadata can be added to the object
-that describes experimental design and grouping variables. The data
-object can then be passed to a number of helper functions that can
-perform a variety of analyses such as clustering-to-clustering mapping, 
-Behavior Flow Analysis (BFA; statiatical two group comparisons) between two groups, 
-Behavior Flow Fingerprinting (BFF; 2D embedding with a per sample resolution) and
-many more.
+This package enables efficient meta-analyses of unsupervised behavior analysis results. It builds a data object containing label data from multiple recordings/samples, with labeling data from different sources and metadata describing experimental design and grouping variables. The data object can be analyzed using helper functions for clustering-to-clustering mapping, Behavior Flow Analysis (BFA; statistical two group analyses), Behavior Flow Fingerprinting (BFF; 2d embedding with a per sample resolution), and more.
 
 All the code contained in this markdown file is written so it can be
 directly run with the example data contained in the `/ExampleData`
@@ -58,12 +47,7 @@ library(pracma)
 building the data object
 ------------------------
 
-The first step is to build the data object. there are two modes
-supported. With the more accessible method samples can be imported
-directly from a folder with multiple CSV files (one per sample) that
-contain label data on a per frame basis. Alternatively data can be
-directly loaded from a list of objects of type TrackingData from our DLC
-Analyzer package(see <https://github.com/ETHZ-INS/DLCAnalyzer>).
+The first step is to build the data object, which can be done in two ways. The first method imports samples directly from a folder with multiple CSV files, one per sample, containing label data on a per-frame basis. The second method loads data directly from a list of TrackingData objects from our DLC Analyzer package(see <https://github.com/ETHZ-INS/DLCAnalyzer>).
 
 Lets explore the two import modes
 
@@ -71,12 +55,7 @@ Lets explore the two import modes
 
 #### Loading from multiple CSV files
 
-we can load the data from csv files directly, which is much more
-accessible for users that are not using the DLC Analyzer framework for
-pre-processing. for this we need a folder that has one CSV file per
-sample. You can find examples of how these files look under
-`ExampleData/CSVinput`. to load all files from this folder and build a
-USdata object we simply use
+Data can be loaded directly from CSV files, which is more accessible for users not using the DLC Analyzer framework for pre-processing. A folder with one CSV file per sample is required. You can find an example of such files and their structure under `ExampleData/CSVinput`. To load all files and build a USdata object, simply use:
 
 ``` r
 US <- LoadFromCSVs(path = "ExampleData/CSVinput", sep =";")
@@ -124,12 +103,7 @@ will be accessible for many downstream applications!*
 
 ### Exploring the data structure of USData
 
-Here we quickly give you an overview of how the data will be saved as
-USdata and how you can access and manipulate individual aspects. However
-fully understanding this is only important if you want to write your own
-functions or understand how the supplied functions work exactly. The
-package contains functions that can be used without fully understanding
-the underlying data structure
+This section provides an overview of how data is saved as USdata and how to access and manipulate individual aspects. However, fully understanding this is only necessary if you want to write your own functions or understand how the supplied functions work. The package contains functions that can be used without fully understanding the underlying data structure.
 
 ``` r
 str(US,max.level = 1)
@@ -213,21 +187,14 @@ head(US$file_names)
 
 ### Adding more data to an existing USData object
 
-A USdata object can be extended with more data from both new CSV inputs
-but also new TrackingObjects. There are two modes of adding new data
-that are supported for both input types:  
+A USdata object can be extended with more data from both new CSV inputs and new TrackingObjects. There are two modes for adding new data, supported for both input types:
 **1)** new labels can be added to existing files  
 **2)** new files can be added to a USdata object  
-In both cases it is important that we supply the same labels for each
-new an/or existing files.
+In both cases, it’s important to supply the same labels for each new and/or existing file.
 
 #### Adding new labels to existing files
 
-In order to add new labels we can again use a folder with CSV input data
-or a list of TrackingData. Of importance here is, that the filenames of
-the old an new data are exactly the same, otherwise it will not know
-where to add the new data! to see how the files for CSV input have to
-look like, have a look at `ExampleData/CSVinput_newlabels`
+To add new labels, use a folder with CSV input data or a list of TrackingData. It’s important that the filenames of the old and new data are exactly the same, otherwise the new data won’t be added correctly See `ExampleData/CSVinput_newlabels` for examples of how the CSV input files should look.
 
 ``` r
 # From CSVs
@@ -239,7 +206,7 @@ TS_newlabels <- readRDS("ExampleData/ExampleTS_newlabels.rds")
 US_addedlabels <- AddFromTrackingObject(US, TS_newlabels)
 ```
 
-lets check what labels are in the USdata now
+Let's check what labels are in the USdata now
 
 ``` r
 US_addedlabels$label_names
@@ -253,7 +220,7 @@ USdata object
 #### Adding new files
 
 We might want to add new files retrospectively. important is that the
-**new files we have the same labels as the orignial data**. Any label
+**new files have the same labels as the orignial data**. Any label
 that is not present in all files will be automatically removed from the
 data. Also, ensure that **none of the new files have the same name as
 already existing files!**  
@@ -288,10 +255,7 @@ files
 
 ### Removing files or labels from the dataset
 
-At some points we might want to take a subset of of files from the
-USdata object or drop some of the labels.  
-If we want to make a new USdata object with the first 10 sample for
-example we can use:
+Sometimes, we might want to take a subset of files from the USdata object or drop some labels. To create a new USdata object with the first 10 samples, for example, we can use:
 
 ``` r
 US_split <- SplitUSData(US, include = US$file_names[1:10])
@@ -335,16 +299,13 @@ Processing the data and runing basic analyses
 After building the dataset we might want to do a number of processing
 steps to generate our first results.
 
-A sensible first step is to smooth the labels. This ensures that single
-frame missclusterings/missclassifications do not impact the overall
-analysis. To smooth the data over +-5 frames we can do this using:
+ A sensible first step is to smooth the labels, ensuring that single-frame missclusterings/missclassifications don’t impact the overall analysis. To smooth the data over ±5 frames, we can use:
 
 ``` r
 US <- SmoothLabels_US(US, integration_period = 5)
 ```
 
-Furthermore we can calculate metrics, such as number of cluster/behavior
-onset / offset and frames spent with cluster/behaviors using:
+We can also calculate metrics such as the number of cluster/behavior onsets and offsets, as well as the number of frames spent with clusters/behaviors, using:
 
 ``` r
 US <- CalculateMetrics(US)
@@ -361,7 +322,7 @@ str(US$Report, max.level = 1)
     ##  $ rear.classifier:'data.frame': 59 obs. of  6 variables:
     ##  $ kmeans.25      :'data.frame': 59 obs. of  50 variables:
 
-lets have a look at rearing classifier results (where we have three
+Let's have a look at rearing classifier results (where we have three
 possible classes: None = no rearing, Supported = supported rearing and
 Unsupported = unsupported rearing)
 
@@ -415,9 +376,7 @@ head(US$Report$rear.classifier)
 nframes summarizes for how many frames each label occurred and count
 will summarize the number of individual onsets/offsets pairs
 
-Furthermore, after adding onset and Offset data we can plot behavior
-trains, to see how specific examples of labels map to other label groups
-using the following command:
+After adding onset and offset data, we can plot behavior trains to see how specific examples of labels map to other label groups using the following command:
 
 ``` r
 BehaviorTrainPlot(US, lab = "rear.classifier", val = "Supported",len = 50,n = 100, max_clust = 3)
@@ -425,7 +384,7 @@ BehaviorTrainPlot(US, lab = "rear.classifier", val = "Supported",len = 50,n = 10
 
 ![](README_files/figure-markdown_github/unnamed-chunk-20-1.png)
 
-we see that from the 3 clusters that map most often to Supported rears
+we see that from the 3 clusters that map most often to supported rears
 cluster 1 describes rearing onset (first \~20 frames) most of the times,
 and clusters 11 and 12 define rearing offset most of the times
 
@@ -488,11 +447,7 @@ PlotBehaviorFlow(US, lab = "kmeans.25")
 
 ### Mapping different label groups to each other
 
-We might want to know how two different label groups relate to each
-other. For example here we would like to know which of our kmeans
-clusters describe rearing behaviors as determined with a classifier. For
-this we first need to calculate the confusion matrix between each label
-group across all files.
+We might want to know how two different label groups relate to each other. For example, we might want to know which of our kmeans clusters describe rearing behaviors as determined by a classifier. To do this, we first need to calculate the confusion matrix between each label group across all files.
 
 ``` r
 US <- AddConfusionMatrix(US)
@@ -583,11 +538,7 @@ Grouped analyses
 
 ### Adding metadata
 
-In many cases we would like to statistically assess if there is a
-difference between a control and test group. For this we first need to
-supply the USData object with metadata describing the experimental
-design. Here we load the metadata from a .csv file that can be found
-under `ExampleData/Example_metadata.csv`
+In many cases, we might want to statistically assess if there is a difference between a control and test group. To do this, we first need to supply the USData object with metadata describing the experimental design. We can load the metadata from a .csv file, such as the one found in `ExampleData/Example_metadata.csv`
 
 ``` r
 head(US$file_names)
@@ -695,7 +646,7 @@ PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans
 
 This plot will show all transitions that are in average different
 between CSI and Control animals. If we more specifically want to see
-which transitions are upregulated or downregulated in CSI we use
+which transitions are upregulated or downregulated in CSI we instead use
 
 ``` r
 PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25", method = "up")
@@ -711,12 +662,7 @@ PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans
 
 ### statiatical two group comparisons and Behavior Flow Analysis
 
-What we were plotting before were average metrics that do not take any
-variability into consideration, so we have to be careful to not
-over-interpret the results without running proper statistical analyses
-on it. Luckily there is a function that will run all sorts two-group
-comparisons with appropriate multi testing corrections with a single
-command:
+The previous plots showed average metrics that didn’t take variability into consideration, so we have to be careful not to over-interpret the results without running proper statistical analyses. Fortunately, there’s a function that can run all two-group comparisons with appropriate multi-testing corrections for cluster and transition occurences, as well as a Behavior Flow Analysis (BFA) which hollistically tests for a group difference across all transitions using a single command:
 
 ``` r
 US <- TwoGroupAnalysis(US, group = US$meta$Condition)
@@ -846,10 +792,7 @@ PlotTransitionsStats(US, labels = "kmeans.25")
 
 ### Behavior Flow Fingerprinting
 
-In this section we introduce the concept of Behavior Flow Figerprinting (BFF).
-This method will look at all transitions for each sample and try to figure out how close each sample is to other samples. 
-we can further color by treatment variables that can be categorical or continuous.
-the resulting 2D embedding will be much better understandable for us to see how close groups are to each other and how many outliers are present in general.
+In this section, we introduce the concept of Behavior Flow Fingerprinting (BFF). This method looks at all transitions for each sample and tries to determine how close each sample is to other samples. We can further color by treatment variables, which can be categorical or continuous. The resulting 2D embedding is easier to understand and allows us to see how close groups are to each other and how many outliers are present in general.
 To perform a BFF across all files based on transitions we can use:
 
 ``` r
