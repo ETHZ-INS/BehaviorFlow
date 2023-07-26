@@ -27,7 +27,7 @@ This package enables efficient meta-analyses of unsupervised behavior analysis r
 
 Please head down to the Tutorial section if you want to apply this to your own data
 
-Optional: Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo (ZENODOLINK). 
+Optional: Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
 
 **1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the `\data` folder in the main `BehaviorFlow` directory. It contains a few pre-built US data objects that contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command:
 
