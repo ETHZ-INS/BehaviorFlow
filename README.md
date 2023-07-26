@@ -27,18 +27,22 @@ This package enables efficient meta-analyses of unsupervised behavior analysis r
 
 Please head down to the Tutorial section if you want to apply this to your own data or play around with our example data
 
-Optional: Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
-
-**1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the content of the `\data` folder into the same folder of the this package (`BehaviorFlow\data`). For your convenience pre-processed files with clustering results are already added to the existing `\data` folder.The pre-built US data objects contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command:
+If you want to play around with our data that is already clustered and pre-processed you will find pre-build USdata objects in the existing `\data` folder. The pre-built US data objects contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command:
 
 ``` r
 US <- readRDS("data/FILE.rds)`
 ```
-This allows convenient loading and playing around with all the big combined datasets without needing downloading the raw data, generating the datasets and pre-processing them
+This allows convenient loading and playing around with all the big combined datasets.
 
-**2)** The raw DLC pose estimation `.csv` files can be found in `\data\SUBFOLDERS` for the corresponding experiment
+**Optional:** Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
+
+**1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the content of the `/data` folder into the same folder of the this package (`BehaviorFlow/data`). 
+
+**2)** The raw DLC pose estimation `.csv` files can be found in `/data/SUBFOLDERS` for the corresponding experiment
 
 **3)** Video data has been deposited in `Videos.zip`. to figure out which video belongs to which DLCFile (pose estimation) best use the `METADATA.csv` or `METADATA.xlsx` files from zenodo. it containes combined metadata across all 411 recordings.
+
+**4)** Scripts in the `R` folder and subfolders will tell you step by step how we went from pose estimation data to unsupervised clustering results and how we then pre-processed this clustering data to achieve the final results and figures. More documentation about what each script does can be found in `R/README.md`
 
 Tutorial
 ===========================================
