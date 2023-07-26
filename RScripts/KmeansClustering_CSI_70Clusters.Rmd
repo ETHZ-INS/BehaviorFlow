@@ -1,0 +1,228 @@
+---
+title: "KmeansClustering_CSI_70Clusters"
+author: "Fabienne Rössler"
+date: '2023-02-09'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer_Functions_v4.R")
+source("UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# K-means clustering of CSI data
+
+To compare k-means with B-SOID and VAME, we apply it to the CSI dataset (n = 59). First, we try to figure out the best number of clusters using the same approach as proposed by the MoSeq and VAME papers (see manuscript for more details). We then run it again with the best number of clusters to get the clustering we compare with the other two.
+
+## k-means with k = 100
+
+First, we define our pipeline:
+
+```{r, eval = FALSE}
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 42*42, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- CreateTestSet(Tracking, integration_period = 15)
+  return(Tracking)
+}
+```
+
+We then load all 59 files:
+
+```{r, eval = FALSE}
+path <- "../data/CSI/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+
+#Lets ensure we have all 118 files
+names(ts)
+```
+
+We are now ready to run the k-means clustering. As mentioned above, we first run the clustering with 100 centers.
+
+```{r, eval = FALSE}
+ts <- UnsupervisedClusteringKmeans(ts, N_clusters = 100,Z_score_Normalize = TRUE)
+```
+
+Save the clustered data.
+
+```{r, eval = FALSE}
+ts2 <- ts
+
+for(j in names(ts2)) {
+  ts2[[j]]$labels[["kmeans.100_CSI"]] <- ts2[[j]]$labels$unsupervised
+  ts2[[j]]$labels$unsupervised <- NULL
+}
+
+for(i in names(ts2)){
+  ts2[[i]]$train_x <- NULL
+}
+
+saveRDS(ts2,"../data/TS_100_Clusters.rds")
+```
+
+We then convert the tracking object into an unsupervised analysis (US) object and shortly check that it contains all 60 files. 
+
+```{r}
+US <- LoadFromTrackingObject(ts2)
+
+length(US$file_names)
+```
+
+We then calculate metrics to get the number of frames for each cluster and each file.
+
+```{r}
+US <- CalculateMetrics(US)
+
+saveRDS(US,"../data/US_100_Clusters.rds")
+```
+
+We now calculate the proportion each cluster appears for each individual file/animal and also compute the mean and SEM over all 59 files.
+
+```{r}
+US <- readRDS("../data/US_100_Clusters.rds")
+
+clusters_100 <- US$Report$kmeans.100
+
+clusters_100 <- clusters_100[, str_detect(colnames(clusters_100), "nframes")]
+clusters_100[is.na(clusters_100)] <- 0
+
+colnames(clusters_100) <- 0
+
+# Compute proportions
+row_sum <- rowSums(clusters_100)
+clusters_100_prop <- clusters_100/row_sum
+
+# Sort proportions from highest to lowest for each file
+for (i in 1:nrow(clusters_100_prop))
+  clusters_100_prop[i, ] <- sort(clusters_100_prop[i, ], decreasing = TRUE)
+
+# Calculate mean proportions over all files 
+mean_prop <- sapply(clusters_100_prop, mean)
+sem_prop <- sapply(clusters_100_prop, function(x)sd(x)/sqrt(length(x)))
+
+# Add up proportions
+sum_prop <- clusters_100_prop
+for (i in 1:nrow(clusters_100_prop))
+  for (j in 2:ncol(clusters_100_prop))
+    sum_prop[i, j] <- rowSums(clusters_100_prop[i, 1:j])
+
+# Calculate mean sum of proportions over all files 
+mean_sum_prop <- sapply(sum_prop, mean)
+sem_sum_prop <- sapply(sum_prop, function(x)sd(x)/sqrt(length(x)))
+```
+
+Plotting the results.
+
+```{r, fig.height=3, fig.width=5}
+min_clust <- which(mean_sum_prop > 0.95)[1]
+
+df <- data.frame(1:100, mean_prop, sem_prop)
+
+ggplot(df, aes(x=X1.100,y=mean_prop)) + 
+  geom_ribbon(aes(ymin = mean_prop-sem_prop,ymax = mean_prop+sem_prop,alpha = 0.1)) + 
+  geom_line() +
+  scale_color_manual(values = "black") +
+  scale_fill_manual(values = "grey") +
+  theme_bw() + ylab("Cluster proportion") + xlab("Sorted clusters") +
+  geom_vline(xintercept = min_clust, color = "red") +
+  theme(legend.position="none")
+
+df2 <- data.frame(1:100, mean_sum_prop, sem_sum_prop)
+
+ggplot(df2, aes(x=X1.100,y=mean_sum_prop)) + 
+  geom_ribbon(aes(ymin = mean_sum_prop-sem_sum_prop,ymax = mean_sum_prop+sem_sum_prop,alpha = 0.1)) + 
+  geom_line() +
+  scale_color_manual(values = "black") +
+  scale_fill_manual(values = "grey") +
+  theme_bw() + ylab("Additive cluster proportion") + xlab("Sorted clusters") +
+  geom_hline(yintercept = 0.95, color = "red") + geom_vline(xintercept = min_clust, color = "red") +
+  theme(legend.position="none") + geom_vline(xintercept = 70, color = "blue")
+```
+
+Based on the plots above, 71 clusters would represent about 95 % of the clustered frames/behavior.
+
+## k-means with k = 70
+
+Again, we first define our pipeline:
+
+```{r, eval = FALSE}
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 42*42, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- CreateTestSet(Tracking, integration_period = 15)
+  return(Tracking)
+}
+```
+
+We then load all 59 files:
+
+```{r, eval = FALSE}
+path <- "../data/CSI/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+
+#Lets ensure we have all 59 files
+names(ts)
+```
+
+We are now ready to run the k-means clustering with 65 centers.
+
+```{r, eval = FALSE}
+ts <- UnsupervisedClusteringKmeans(ts, N_clusters = 70, Z_score_Normalize = TRUE)
+```
+
+Save the clustered data.
+
+```{r, eval = FALSE}
+ts2 <- ts
+
+for(j in names(ts2)) {
+  ts2[[j]]$labels[["kmeans.70_CSI"]] <- ts2[[j]]$labels$unsupervised
+  ts2[[j]]$labels$unsupervised <- NULL
+}
+
+for(i in names(ts2)){
+  ts2[[i]]$train_x <- NULL
+}
+
+saveRDS(ts2,"../data/TS_70_Clusters.rds")
+```
+

@@ -1,0 +1,461 @@
+---
+title: "SensitivityAnalysis_AllData"
+author: "Fabienne Rössler"
+date: '2023-07-13'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("../DLCAnalyzer_Functions_v4.R")
+source("../UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Running sensitivity assays for all datasets and various labels
+
+## All datasets with transfer of clustering using cluster classifier
+
+Load data.
+
+```{r, eval = FALSE}
+US <- readRDS("../../data/US_AllData_v2.rds")
+```
+
+### CSI
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "PostCSI")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(50,40,30,20,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Condition)[1] == i/2){
+        # BFA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Condition,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        # BOA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis_Clusters(US3, US3$meta$Condition,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        equal = TRUE
+      }
+    }
+    # Combined behavior with linear model
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Condition)
+    # Combined behavior with logistic regression model
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Condition)
+    
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+        
+                                # BFA results for different kmeans
+                                kmeans.10.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                
+                                # BOA results for different kmeans
+                                kmeans.10.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.100"]]$p.value,
+                                
+                                # Highest FDR/p-values for cluster and transitions for different kmeans
+                                kmeans.10.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.10$FDR[1],
+                                kmeans.10.topclust.p = US3$Results[[1]]$Statistics$kmeans.10$p[1],
+                                kmeans.10.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$FDR[1],
+                                kmeans.10.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$p.value[1],
+                                
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                
+                                kmeans.50.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.50$FDR[1],
+                                kmeans.50.topclust.p = US3$Results[[1]]$Statistics$kmeans.50$p[1],
+                                kmeans.50.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$FDR[1],
+                                kmeans.50.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$p.value[1],
+                                
+                                kmeans.100.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.100$FDR[1],
+                                kmeans.100.topclust.p = US3$Results[[1]]$Statistics$kmeans.100$p[1],
+                                kmeans.100.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$FDR[1],
+                                kmeans.100.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$p.value[1],
+                                
+                                # Highest FDR of all classical readouts
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw$FDR[1],
+                                # Highest p-value of all 4 classical readouts
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                
+                                # Results of PCA (combined behavior) analysis
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../../data/CSI_BIGSensitivity_AllData_50sim.rds")
+```
+
+
+### AS
+
+After 45 min.
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "FST45min")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(26,22,18,14,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment)[1] == i/2){
+        # BFA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Treatment,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        # BOA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis_Clusters(US3, US3$meta$Treatment,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        equal = TRUE
+      }
+    }
+    # Combined behavior with linear model
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    # Combined behavior with logistic regression model
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Treatment)
+    
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+        
+                                # BFA results for different kmeans
+                                kmeans.10.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                
+                                # BOA results for different kmeans
+                                kmeans.10.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.100"]]$p.value,
+                                
+                                # Highest FDR/p-values for cluster and transitions for different kmeans
+                                kmeans.10.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.10$FDR[1],
+                                kmeans.10.topclust.p = US3$Results[[1]]$Statistics$kmeans.10$p[1],
+                                kmeans.10.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$FDR[1],
+                                kmeans.10.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$p.value[1],
+                                
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                
+                                kmeans.50.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.50$FDR[1],
+                                kmeans.50.topclust.p = US3$Results[[1]]$Statistics$kmeans.50$p[1],
+                                kmeans.50.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$FDR[1],
+                                kmeans.50.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$p.value[1],
+                                
+                                kmeans.100.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.100$FDR[1],
+                                kmeans.100.topclust.p = US3$Results[[1]]$Statistics$kmeans.100$p[1],
+                                kmeans.100.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$FDR[1],
+                                kmeans.100.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$p.value[1],
+                                
+                                # Highest FDR of all classical readouts
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw$FDR[1],
+                                # Highest p-value of all 4 classical readouts
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                
+                                # Results of PCA (combined behavior) analysis
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../../data/AS45min_BIGSensitivity_AllData_50sim.rds")
+```
+
+
+After 24 hours.
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "FST24h")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(26,22,18,14,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment)[1] == i/2){
+        # BFA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Treatment,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        # BOA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis_Clusters(US3, US3$meta$Treatment,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        equal = TRUE
+      }
+    }
+    # Combined behavior with linear model
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    # Combined behavior with logistic regression model
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Treatment)
+    
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+        
+                                # BFA results for different kmeans
+                                kmeans.10.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                
+                                # BOA results for different kmeans
+                                kmeans.10.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.100"]]$p.value,
+                                
+                                # Highest FDR/p-values for cluster and transitions for different kmeans
+                                kmeans.10.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.10$FDR[1],
+                                kmeans.10.topclust.p = US3$Results[[1]]$Statistics$kmeans.10$p[1],
+                                kmeans.10.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$FDR[1],
+                                kmeans.10.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$p.value[1],
+                                
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                
+                                kmeans.50.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.50$FDR[1],
+                                kmeans.50.topclust.p = US3$Results[[1]]$Statistics$kmeans.50$p[1],
+                                kmeans.50.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$FDR[1],
+                                kmeans.50.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$p.value[1],
+                                
+                                kmeans.100.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.100$FDR[1],
+                                kmeans.100.topclust.p = US3$Results[[1]]$Statistics$kmeans.100$p[1],
+                                kmeans.100.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$FDR[1],
+                                kmeans.100.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$p.value[1],
+                                
+                                # Highest FDR of all classical readouts
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw$FDR[1],
+                                # Highest p-value of all 4 classical readouts
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                
+                                # Results of PCA (combined behavior) analysis
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../../data/AS24h_BIGSensitivity_AllData_50sim.rds")
+```
+
+
+### CRS
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "CRS1")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(28,24,20,16,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Condition)[1] == i/2){
+        # BFA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Condition,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        # BOA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis_Clusters(US3, US3$meta$Condition,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        equal = TRUE
+      }
+    }
+    # Combined behavior with linear model
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Condition)
+    # Combined behavior with logistic regression model
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Condition)
+    
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+        
+                                # BFA results for different kmeans
+                                kmeans.10.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                
+                                # BOA results for different kmeans
+                                kmeans.10.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.100"]]$p.value,
+                                
+                                # Highest FDR/p-values for cluster and transitions for different kmeans
+                                kmeans.10.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.10$FDR[1],
+                                kmeans.10.topclust.p = US3$Results[[1]]$Statistics$kmeans.10$p[1],
+                                kmeans.10.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$FDR[1],
+                                kmeans.10.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$p.value[1],
+                                
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                
+                                kmeans.50.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.50$FDR[1],
+                                kmeans.50.topclust.p = US3$Results[[1]]$Statistics$kmeans.50$p[1],
+                                kmeans.50.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$FDR[1],
+                                kmeans.50.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$p.value[1],
+                                
+                                kmeans.100.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.100$FDR[1],
+                                kmeans.100.topclust.p = US3$Results[[1]]$Statistics$kmeans.100$p[1],
+                                kmeans.100.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$FDR[1],
+                                kmeans.100.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$p.value[1],
+                                
+                                # Highest FDR of all classical readouts
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw$FDR[1],
+                                # Highest p-value of all 4 classical readouts
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                
+                                # Results of PCA (combined behavior) analysis
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../../data/CRS_BIGSensitivity_AllData_50sim.rds")
+```
+
+
+### DREADD
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "DREADD")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(14,12,10,8,6)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment)[1] == i/2){
+        # BFA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Treatment,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        # BOA for different kmeans clusterings
+        US3 <- TwoGroupAnalysis_Clusters(US3, US3$meta$Treatment,lab = c("kmeans.10", "kmeans.25", "kmeans.50", "kmeans.100"))
+        equal = TRUE
+      }
+    }
+    # Combined behavior with linear model
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    # Combined behavior with logistic regression model
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Treatment)
+    
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+        
+                                # BFA results for different kmeans
+                                kmeans.10.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BFAstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                
+                                # BOA results for different kmeans
+                                kmeans.10.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.10"]]$p.value,
+                                kmeans.25.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.25"]]$p.value,
+                                kmeans.50.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.50"]]$p.value,
+                                kmeans.100.BOAstats.p = US3$Results[[1]]$ClusterStats[["kmeans.100"]]$p.value,
+                                
+                                # Highest FDR/p-values for cluster and transitions for different kmeans
+                                kmeans.10.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.10$FDR[1],
+                                kmeans.10.topclust.p = US3$Results[[1]]$Statistics$kmeans.10$p[1],
+                                kmeans.10.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$FDR[1],
+                                kmeans.10.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.10$transitions$p.value[1],
+                                
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                
+                                kmeans.50.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.50$FDR[1],
+                                kmeans.50.topclust.p = US3$Results[[1]]$Statistics$kmeans.50$p[1],
+                                kmeans.50.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$FDR[1],
+                                kmeans.50.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.50$transitions$p.value[1],
+                                
+                                kmeans.100.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.100$FDR[1],
+                                kmeans.100.topclust.p = US3$Results[[1]]$Statistics$kmeans.100$p[1],
+                                kmeans.100.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$FDR[1],
+                                kmeans.100.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.100$transitions$p.value[1],
+                                
+                                # Highest FDR of all classical readouts
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw$FDR[1],
+                                # Highest p-value of all 4 classical readouts
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                
+                                # Results of PCA (combined behavior) analysis
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../../data/DREADD_BIGSensitivity_AllData_50sim.rds")
+```

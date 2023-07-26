@@ -1,0 +1,122 @@
+---
+title: "Comparison_ClusteringAlgorithms"
+author: "Fabienne Rössler"
+date: '2023-02-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Required libraries:
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer_Functions_v4.R")
+source("UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(ggplot2)
+library(circlize)
+library(pracma)
+library(circlize)
+set.seed(123)
+```
+
+# Comparison of 3 different clustering algorithms (BSOID, VAME and k-means) on CSI data
+
+After applying all three clustering algorithms to the 59 CSI files, we now want to compare their performance between each other.
+
+## Pre-processing
+
+First, we load the k-means clustering data into memory.
+
+```{r}
+ts <- readRDS("../data/TS_70_Clusters.rds")
+```
+
+Afterwards, we create an US object from the tracking data and add the clustering results of VAME and B-SOiD to the US object.
+
+```{r}
+# Create US object
+US <- LoadFromTrackingObject(ts)
+
+# Add clustering results from VAME to the US object
+US <- AddFromVAME(US, "../data/VAME_clustering/80_Clusters/", lab_name = "VAME.80", cut_start = 0, delay = 15)
+
+# Add clustering results from BSOID to the US object
+US <- AddFromBsoid(US, "../data/BSOID_clustering//", lab_name = "BSOID.8")
+
+head(USDataReport(US))
+USDataCheck(US)
+```
+
+Before starting to preprocess, we add the metadata and save the un-processed US object.
+
+```{r, eval = FALSE}
+meta <- read.table("../metadata/CSI_70Clusters.csv", sep = ";", header = T)
+rownames(meta) <- meta$DLCFile
+meta$DLCFile <- NULL
+
+US <- AddMetaData(US, meta)
+
+saveRDS(US,"../data/US_ComparisonClustering_CSI_unprocessed.rds")
+```
+
+We first smooth the data over 5 frames. This step removes clusters that were identified in a single frame and ensures that behavior trains are better resolved.
+
+```{r, eval = FALSE}
+US <- readRDS("../data/US_ComparisonClustering_CSI_unprocessed.rds")
+
+US <- SmoothLabels_US(US, 5)
+```
+
+We calculate metrics such as number of onset-offset and number of frames for each cluster.
+
+```{r, eval = FALSE}
+US <- CalculateMetrics(US)
+
+for (i in US$label_names) {
+  US$Report[[i]] <- replace(US$Report[[i]], is.na(US$Report[[i]]), 0)
+}
+```
+
+Next, we calculate the transition matrix for each clustering analysis of each file.
+
+```{r, eval = FALSE}
+US <- AddTransitionMatrixData(US)
+```
+
+We finally calculate the confusion matrix between each clustering result across all files. This will allow us to compare different algorithms and see if they result in clusters that map strongly to each other.
+
+```{r, eval = FALSE}
+US <- AddConfusionMatrix(US)
+```
+
+We also wanna test if there are differences between clusters for each clustering algorithm.
+
+```{r, fig.height=6, fig.width=6}
+US$Results <- NULL
+US <- TwoGroupAnalysis(US, US$meta$Condition)
+```
+
+We save this object, so next time we do not have to re-process it.
+
+```{r, eval = FALSE}
+saveRDS(US,"../data/US_ComparisonClustering_CSI_processed.rds")
+```
+
+
+

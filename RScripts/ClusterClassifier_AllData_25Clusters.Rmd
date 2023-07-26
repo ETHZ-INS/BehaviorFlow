@@ -1,0 +1,163 @@
+---
+title: "ClusterClassifier_AllData_25Clusters"
+author: "Fabienne Rössler"
+date: '2023-06-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer_Functions_v4.R")
+source("UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+set.seed(123)
+```
+
+# Apply cluster classifier for k-means with 25 cluster to all datasets (CSI, AS, yohimbine, CRS, DREADD) 
+
+Process all files using the cluster classifier for k-means with 25 clusters.
+
+```{r, eval = FALSE}
+model_kmeans25 <- load_model_hdf5("../kmeans_classifiers/kmeans.25.model.hdf5")
+model_kmeans25_para <- readRDS("../kmeans_classifiers/kmeans.25.model.PARAMETERS.rds")
+
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 42*42, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  
+  Tracking <- ClassifyBehaviors(Tracking, model_kmeans25, model_kmeans25_para)
+  Tracking$labels$kmeans.25 <- Tracking$labels$classifications
+  
+  Tracking$labels$classifications <- NULL
+  Tracking$train_x <- NULL
+  return(Tracking)
+}
+
+# We need a different pipeline for DREADD as the files contain 20 min of recording (we only use the first 10 min)
+pipeline_DREADD <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 15000)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 42*42, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  
+  Tracking <- ClassifyBehaviors(Tracking, model_kmeans25, model_kmeans25_para)
+  Tracking$labels$kmeans.25 <- Tracking$labels$classifications
+  
+  Tracking$labels$classifications <- NULL
+  Tracking$train_x <- NULL
+  return(Tracking)
+}
+
+
+#CSI data
+path <- "../data/CSI_SA/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+
+#FST data
+path <- "../data/AS/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+
+#Yohimbin data
+path <- "../data/Yohimbine/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#DREADD data
+path <- "../data/DREADD/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts_transfer <- RunPipeline(files,path,pipeline_DREADD)
+
+#CRS data
+path <- "../data/CRS/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts_transfer <- append(ts_transfer,RunPipeline(files,path,pipeline))
+
+
+for(i in names(ts)){
+  ts[[i]]$train_x <- NULL
+}
+
+for(i in names(ts_transfer)){
+  ts_transfer[[i]]$train_x <- NULL
+}
+
+```
+
+We then create an unsupervised analysis dataobject. We add the metadata that contains the experimental details and save it as one object.
+
+```{r, eval = FALSE}
+US_transfer <- LoadFromTrackingObject(append(ts,ts_transfer))
+meta_transfer <- read.table("../metadata/AllData_25Clusters.csv", sep = ";", header = T)
+rownames(meta_transfer) <- meta_transfer$DLCFile
+meta_transfer$DLCFile <- NULL
+
+US_transfer <- AddMetaData(US_transfer, meta_transfer)
+
+saveRDS(US_transfer,"../data/US_AllData_25Clusters.rds")
+saveRDS(append(ts, ts_transfer), "../data/TS_AllData_25Clusters.rds.rds")
+```
+
+## Pre-processing the data
+
+We load the data for the unsupervised analysis object.
+
+```{r}
+US <- readRDS("../data/US_AllData_25Clusters.rds")
+```
+
+We first smooth the data over 5 frames, this removes clusters that were identified in a single frame and ensures that behavior trains are better resolved.
+
+```{r, eval = FALSE}
+US <- SmoothLabels_US(US, 5)
+```
+
+We calculate metrics, such as number of onset-offset and number of frames for each cluster.
+
+```{r, eval = FALSE}
+US <- CalculateMetrics(US)
+```
+
+Next, we calculate the transition matrix for each clustering analysis in each file.
+
+```{r, eval = FALSE}
+US <- AddTransitionMatrixData(US)
+```
+
+We save this object, so next time we do not have to re-process it.
+
+```{r, eval = FALSE}
+saveRDS(US,"../data/US_AllData_25Clusters.rds")
+```

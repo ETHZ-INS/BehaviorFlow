@@ -1,0 +1,436 @@
+---
+title: "SensitivityAssays_AllData_25Clusters"
+author: "Lukas von Ziegler"
+date: '2022-11-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer_Functions_v4.R")
+source("UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+
+# Running sensitivity assays for all datasets (using k-means clustering with 25 clusters)
+
+Load data.
+
+```{r, eval = FALSE}
+US <- readRDS("../data/US_AllData_25Clusters.rds")
+
+US_temp <- readRDS("../data/US_AllData.rds")
+US$Report$raw <- US_temp$Report$raw
+```
+
+## CSI
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "PostCSI")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(50,40,30,20,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Condition)[1] == i/2){
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Condition,lab = "kmeans.25")
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Condition)
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Condition)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.p = pcares_logReg$stats$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/CSI_Sensitivity_25Clusters_50sim.rds")
+```
+
+Test:
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "PostCSI")
+
+set.seed(123)
+
+brk <- c(50,40,30,20,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Condition)[1] == i/2){
+        # US3 <- TwoGroupAnalysis(US3, US3$meta$Condition,lab = "kmeans.25")
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Condition)
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Condition)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                #kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                #kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                #kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                #kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                #kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                #DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                #classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.modvsshuffled.p = pcares_logReg$stats_modvsshuffled$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/CSI_Sensitivity_TEST.rds")
+```
+
+
+```{r}
+dat <- Res
+
+dat[dat == 0] <- min(dat[dat != 0])
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, na.rm = TRUE, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, na.rm = TRUE, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+means_CSI <- means
+
+#p1 <- ggplot(means[means$Group.1 %in% c("kmeans.70.matstats.p","BSOID.8.matstats.p","VAME.80.matstats.p","classical.top.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) +
+p1 <- ggplot(means[means$Group.1 %in% c("DLC.PCA.LogReg.modvsnull.p","DLC.PCA.LogReg.modvsshuffled.p","DLC.PCA.LogReg.nullvsshuffled.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  #ylim(0.3, 9.3) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("blue","red","grey")) +
+  scale_fill_manual(values = c("blue","red","grey")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p1)
+```
+
+## AS
+
+After 45 min.
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "FST45min")
+
+set.seed(123)
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(26,22,18,14,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment)[1] == i/2){
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Treatment,lab = c("kmeans.25"))
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Treatment)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.p = pcares_logReg$stats$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/AS45min_Sensitivity_25Clusters_50sim.rds")
+```
+
+
+Test:
+
+```{r, eval = FALSE}
+US2 <- SplitUSData(US, select = US$meta$Session == "FST45min")
+
+set.seed(123)
+
+brk <- c(26,22,18,14,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment)[1] == i/2){
+        # US3 <- TwoGroupAnalysis(US3, US3$meta$Condition,lab = "kmeans.25")
+        print("yes")
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Treatment)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                #kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                #kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                #kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                #kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                #kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                #DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                #classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.modvsnull.p = pcares_logReg$stats_modvsnull$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.modvsshuffled.p = pcares_logReg$stats_modvsshuffled$`Pr(>Chi)`[2], 
+                                DLC.PCA.LogReg.nullvsshuffled.p = pcares_logReg$stats_shuffledvsnull$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/AS45min_Sensitivity_TEST.rds")
+```
+
+
+```{r}
+dat <- Res
+
+dat[dat == 0] <- min(dat[dat != 0])
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, na.rm = TRUE, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, na.rm = TRUE, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+means_CSI <- means
+
+#p1 <- ggplot(means[means$Group.1 %in% c("kmeans.70.matstats.p","BSOID.8.matstats.p","VAME.80.matstats.p","classical.top.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) +
+p1 <- ggplot(means[means$Group.1 %in% c("DLC.PCA.LogReg.modvsnull.p","DLC.PCA.LogReg.modvsshuffled.p","DLC.PCA.LogReg.nullvsshuffled.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  #ylim(0.3, 9.3) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("blue","red","grey")) +
+  scale_fill_manual(values = c("blue","red","grey")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p1)
+```
+
+
+
+After 24 hours.
+
+```{r, eval = FALSE}
+set.seed(123)
+US2 <- SplitUSData(US, select = US$meta$Session == "FST24h")
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(26,22,18,14,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment)[1] == i/2){
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Treatment,lab = c("kmeans.25"))
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    pcares_logReg <- TwoGroupAnalysis_PCA_Report_LogReg(US3,group = US3$meta$Treatment)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>F)`[2],
+                                DLC.PCA.LogReg.p = pcares_logReg$stats$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/AS24h_Sensitivity_25Clusters_50sim.rds")
+```
+
+## CRS
+
+```{r, eval = FALSE}
+set.seed(123)
+US2 <- SplitUSData(US, select = US$meta$Session == "CRS1")
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(28,24,20,16,10)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Condition)[1] == i/2){
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Condition,lab = c("kmeans.25"))
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Condition)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/CRS_Sensitivity_25Clusters_50sim.rds")
+```
+
+## DREADD
+
+```{r, eval = FALSE}
+set.seed(123)
+US2 <- SplitUSData(US, select = US$meta$Session == "DREADD")
+classical_readouts <- c("classifications.Supported.count","classifications.Unsupported.count","bodycentre.center.total.time","bodycentre.distance.moving")
+
+brk <- c(14,12,10,8,6)
+nsim <- 50
+
+Res <- NULL
+for(i in brk){
+  for(j in 1:nsim){
+    print(paste(i, j, sep = " "))
+    #ensure we have the same number of samples here (otherwise we may get 7x3 or something)
+    equal = FALSE
+    while(!equal){
+      US3 <- SplitUSData(US2, include = sample(US2$file_names)[1:i])
+      if(table(US3$meta$Treatment )[1] == i/2){
+        US3 <- TwoGroupAnalysis(US3, US3$meta$Treatment,lab = c("kmeans.25"))
+        equal = TRUE
+      }
+    }
+    pcares <- TwoGroupAnalysis_PCA_Report(US3,group = US3$meta$Treatment)
+    Res <- rbind(Res,data.frame(n_animals = i, 
+                                n_sim = j, 
+                                kmeans.25.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.25"]]$p.value,
+                                # kmeans.50.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.50"]]$p.value,
+                                # kmeans.100.matstats.p = US3$Results[[1]]$TransitionStats[["kmeans.100"]]$p.value,
+                                kmeans.25.topclust.FDR = US3$Results[[1]]$Statistics$kmeans.25$FDR[1],
+                                kmeans.25.topclust.p = US3$Results[[1]]$Statistics$kmeans.25$p[1],
+                                kmeans.25.toptrans.FDR = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$FDR[1],
+                                kmeans.25.toptrans.p = US3$Results[[1]]$TransitionStats$kmeans.25$transitions$p.value[1],
+                                DLC.top.FDR = US3$Results[[1]]$Statistics$raw[1,3],
+                                classical.top.p = min(1,US3$Results[[1]]$Statistics$raw[US3$Results[[1]]$Statistics$raw$name %in% classical_readouts,][1,2] * length(classical_readouts)),
+                                DLC.PCA.p = pcares$stats$`Pr(>Chi)`[2]))
+  }
+}
+
+saveRDS(Res,"../data/DREADD_Sensitivity_25Clusters_50sim.rds")
+```
