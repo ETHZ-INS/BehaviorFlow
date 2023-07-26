@@ -29,12 +29,12 @@ Please head down to the Tutorial section if you want to apply this to your own d
 
 Optional: Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
 
-**1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the `\data` folder in the main `BehaviorFlow` directory. It contains a few pre-built US data objects that contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command:
+**1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the content of the `\data` folder into the same folder of the `BehaviorFlow` directory. For your convenience pre-processed files with clustering results are already added to the existing `\data` folder.The pre-built US data objects contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command:
 
 ``` r
 US <- readRDS("data/FILE.rds)`
 ```
-This allows convenient loading and playing around with all the big combined datasets without needing to create the datasets and pre-process them
+This allows convenient loading and playing around with all the big combined datasets without needing downloading the raw data, generating the datasets and pre-processing them
 
 **2)** The raw DLC pose estimation `.csv` files can be found in `\data\SUBFOLDERS` for the corresponding experiment
 
