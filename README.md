@@ -209,8 +209,11 @@ head(US$file_names)
 ### Adding more data to an existing USData object
 
 A USdata object can be extended with more data from both new CSV inputs and new TrackingObjects. There are two modes for adding new data, supported for both input types:
+
 **1)** new labels can be added to existing files  
+
 **2)** new files can be added to a USdata object  
+
 In both cases, it’s important to supply the same labels for each new and/or existing file.
 
 #### Adding new labels to existing files
