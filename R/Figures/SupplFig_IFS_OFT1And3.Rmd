@@ -1,0 +1,183 @@
+---
+title: "SupplFigure IFS (OFT1 and OFT3)"
+author: "Fabienne Rössler"
+date: '2023-05-02'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, warning = FALSE}
+source("../DLCAnalyzer_Functions_v4.R")
+source("../UnsupervisedAnalysis_Functions.R")
+library(rlang)
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(pROC)
+library(yardstick)
+set.seed(123)
+```
+
+# Suppl Figure for OFT1 and 3 from IFS (intense footshock) experiment
+
+```{r}
+US <- readRDS("../../data/US_IFS_25Clusters_withResilience.rds")
+```
+
+```{r}
+US1 <- SplitUSData(US, select = US$meta$Session %in% c("OFT1"))
+US1 <- TwoGroupAnalysis(US1,group = US1$meta$group, lab = "kmeans.25")
+
+US3 <- SplitUSData(US, select = US$meta$Session %in% c("OFT3"))
+US3 <- TwoGroupAnalysis(US3,group = US3$meta$group, lab = "kmeans.25")
+```
+
+
+## Barplots showing cluster occurence for OFT1 and OFT3
+
+### OFT1
+
+```{r, fig.height=2.6, fig.width=9}
+pdat <- US1$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US1$meta$filename)
+pdat$Group <- US1$meta$group[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(20)
+
+pdat_temp <- pdat[pdat$Group == "Control", ]
+df$SEM[df$Group=="Control"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(15)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#6CB6E0")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/SupplFigure_IFS_barplot_OFT1.pdf", height = 2.6, width = 9)
+print(p1)
+dev.off()
+
+US1$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US1$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+### OFT3
+
+```{r, fig.height=2.6, fig.width=9}
+pdat <- US3$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US3$meta$filename)
+pdat$Group <- US3$meta$group[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(20)
+
+pdat_temp <- pdat[pdat$Group == "Control", ]
+df$SEM[df$Group=="Control"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(15)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#6CB6E0")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/SupplFigure_IFS_barplot_OFT3.pdf", height = 2.6, width = 9)
+print(p1)
+dev.off()
+
+US3$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US3$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+
+## Behavior flow differences for OFT1 and OFT3
+
+### OFT1
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US1, grouping = US1$meta$group == "TFS", lab = "kmeans.25")
+
+pdf("../../Plots/SupplFigure_IFS_behaviorFlow_OFT1.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US1, grouping = US1$meta$group == "TFS", lab = "kmeans.25")
+dev.off()
+
+trans_stats <- US1$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+```
+
+### OFT3
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US3, grouping = US3$meta$group == "TFS", lab = "kmeans.25")
+
+pdf("../../Plots/SupplFigure_IFS_behaviorFlow_OFT3.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US3, grouping = US3$meta$group == "TFS", lab = "kmeans.25")
+dev.off()
+
+trans_stats <- US3$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+```
+

@@ -1,0 +1,175 @@
+---
+title: "Figure3_BFF"
+author: "Fabienne Rössler"
+date: '2023-03-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("../DLCAnalyzer_Functions_v4.R")
+source("../UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Figure 3
+
+```{r}
+US <- readRDS("../../data/US_AllData_25Clusters.rds")
+```
+
+```{r}
+US2 <- SplitUSData(US, select = US$meta$Session == "PostYoh" & US$meta$Condition == "Control")
+
+US3 <- SplitUSData(US, select = US$meta$Session %in% c("PostCSI"))
+
+US4 <- SplitUSData(US, select = US$meta$Session %in% c("FST45min","FST24h"))
+
+US_all <- SplitUSData(US, select = US$meta$Session %in% c("PostCSI","FST45min","FST24h","PostYoh"))
+US_all <- SplitUSData(US_all, omit = names(US_all$files)[US_all$meta$Condition == "Tunnel"])
+```
+
+## Dosage response curves for yohimbine
+
+```{r, fig.height=2, fig.width=3.5}
+grp <- log1p(10*US2$meta$Dosage)
+Results <- NULL
+for(j in 1:25){
+  for(k in 1:25){
+    dat <- NULL
+    for(i in US2$files){
+      jname <- rownames(i$transmatrix$kmeans.25)[j]
+      kname <- colnames(i$transmatrix$kmeans.25)[k]
+      dat <- append(dat, i$transmatrix$kmeans.25[j,k])
+    }
+    if(sum(dat) > 0){
+      mod <- lm(log1p(dat)~grp)
+      r_2 <- summary(mod)$r.squared
+      f_stat <- summary(mod)$fstatistic[1]
+      df1 <- summary(mod)$fstatistic[2]
+      df2 <- summary(mod)$fstatistic[3]
+      pval <- coef(summary(mod))[,4][2]
+      Results <- rbind(Results, data.frame(j = jname, k = kname, pvalue = pval, rsquared = r_2, fstat = f_stat, df1 = df1, df2 = df2))
+    }
+  }
+}
+Results$FDR <- p.adjust(Results$pvalue, method = "BY")
+Results <- Results[order(Results$FDR),]
+head(Results)
+
+p1 <- PlotTransitions(US2,lab = "kmeans.25", from = "11", to = "7", groupby = "Treatment", cols = c("black","#CC79A7"))
+dat <- p1$data
+assign <- match(dat$name, US2$meta$filename)
+dat$Dosage <- US2$meta$Dosage[assign]
+
+p2 <- ggplot(dat, aes(log(1+10*Dosage), log(1+value))) + 
+  geom_point(aes(colour = group)) +
+  scale_color_manual(values = c("black","#CC79A7")) +
+  facet_wrap(~ transition, ncol = 1, scales = "free") + 
+  theme_bw() + 
+  geom_smooth(method = "lm", color = "black") + 
+  scale_x_continuous(breaks = log(1+10*c(0, 0.08, 0.2, 0.4, 0.6))) +
+  ylim(0, 4) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p2)
+
+pdf("../../Plots/Figure3_responseCurves_yohimbine.pdf", height = 1.8, width = 3.5)
+print(p2)
+dev.off()
+```
+
+
+## 2D embedding of yohimbine data
+
+```{r, fig.height=2.7, fig.width=4}
+US2 <- CalculateStabilizedTransitions(US2, group = "Treatment",control = "Saline",labels = "kmeans.25")
+US2$meta$log1pDosage <- log1p(US2$meta$Dosage*10)
+p1 <- Plot2DEmbedding(US2,transitionmatrices_stabilized = "kmeans.25",colorby = "Treatment",colors =  c("grey","#CC79A7"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure3_2Dembedding_yohimbine.pdf", height = 2.7, width = 4)
+print(p1)
+dev.off()
+```
+
+## 2D embedding of yohimbine data (dosage)
+
+```{r, fig.height=2.7, fig.width=3.65}
+p1 <- Plot2DEmbedding(US2,transitionmatrices_stabilized = "kmeans.25",colorby = "log1pDosage", method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure3_2Dembedding_yohimbine_dosage.pdf", height = 2.7, width = 3.65)
+print(p1)
+dev.off()
+```
+
+## 2D embedding of CSI data
+
+```{r, fig.height=2.5, fig.width=3.5}
+US3 <- CalculateStabilizedTransitions(US3, group = "Condition",control = "Control",labels = "kmeans.25")
+p1 <- Plot2DEmbedding(US3,transitionmatrices_stabilized = "kmeans.25",colorby = "Condition",colors =  c("grey","#0072B2"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure3_2Dembedding_CSI.pdf", height = 2.5, width = 3.5)
+print(p1)
+dev.off()
+```
+
+## 2D embedding of AS data
+
+```{r, fig.height=2.5, fig.width=3.5}
+US4$meta$Treatment2 <- US4$meta$Treatment
+US4$meta$Treatment2 <- ifelse(US4$meta$Treatment2 == "Control",US4$meta$Treatment2, US4$meta$TimePoint)
+US4 <- CalculateStabilizedTransitions(US4, group = "Treatment",control = "Control",labels = "kmeans.25", subset = US4$meta$TimePoint == "45min")
+US4 <- CalculateStabilizedTransitions(US4, group = "Treatment",control = "Control",labels = "kmeans.25", subset = US4$meta$TimePoint == "24h")
+
+p1 <- Plot2DEmbedding(US4,transitionmatrices_stabilized = "kmeans.25",colorby = "Treatment2",colors =  c("black","#D52800","grey"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure3_2Dembedding_AS.pdf", height = 2.5, width = 3.5)
+print(p1)
+dev.off()
+```
+
+## 2D embedding of all data combined
+
+```{r, fig.width=5.1, fig.height=4.1}
+US_all <- CalculateStabilizedTransitions(US_all,group = "Condition",control = "Control",subset = US_all$meta$Session == "PostCSI",labels = "kmeans.25")
+US_all <- CalculateStabilizedTransitions(US_all,group = "Treatment",control = "Control",subset = US_all$meta$Session == "FST45min",labels = "kmeans.25")
+US_all <- CalculateStabilizedTransitions(US_all,group = "Treatment",control = "Control",subset = US_all$meta$Session == "FST24h",labels = "kmeans.25")
+US_all <- CalculateStabilizedTransitions(US_all,group = "Treatment",control = "Saline",subset = US_all$meta$Session == "PostYoh",labels = "kmeans.25")
+
+US_all$meta$Embedding <- "Control"
+US_all$meta$Embedding[US_all$meta$Session == "PostCSI" & US_all$meta$Condition != "Control"] <- "CSI"
+US_all$meta$Embedding[US_all$meta$Session == "FST45min" & US_all$meta$Treatment != "Control"] <- "FST_45m"
+US_all$meta$Embedding[US_all$meta$Session == "FST24h" & US_all$meta$Treatment != "Control"] <- "FST_24h"
+US_all$meta$Embedding[US_all$meta$Session == "PostYoh" & US_all$meta$Treatment != "Saline"] <- "Yohimbine"
+
+p1 <- Plot2DEmbedding(US_all,transitionmatrices_stabilized = "kmeans.25", colorby = "Embedding", colors = c("grey","#0072B2","black","#D52800","#CC79A7"), seed = 123,plot.sem = TRUE)
+print(p1)
+
+pdf("../../Plots/Figure3_2Dembedding_combined.pdf", height =4.1, width = 5.1)
+print(p1)
+dev.off()
+```
+
+

@@ -1,0 +1,361 @@
+---
+title: "Visualisation_BigSensitivityAnalysis"
+author: "Fabienne Rössler"
+date: '2023-07-14'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("../DLCAnalyzer_Functions_v4.R")
+source("../UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Create plots to visualize results of big sensitivity analsysis
+
+## CSI
+
+Original plot where we compare kmeans 25 with best behavior and combined behavior (linear model): 
+
+```{r,fig.width= 3.5, fig.height=2}
+dat <- readRDS("../../data/CSI_BIGSensitivity_AllData_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, na.rm = TRUE,, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, na.rm = TRUE, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("DLC.PCA.",means$Group.1)] <- "PCA"
+means_CSI <- means
+
+p1 <- ggplot(means_DREADD[means_CSI$Group.1 %in% c("kmeans.25.BFAstats.p","classical.top.p", "DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("grey","black","#994F88")) +
+  scale_fill_manual(values = c("grey","black","#994F88")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+print(p1)
+```
+
+Comparison between BFA and PCA models:
+
+```{r}
+p1 <- ggplot(means_CSI[means_CSI$Group.1 %in% c("kmeans.10.BFAstats.p", "kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "classical.top.p", "DLC.PCA.p", "DLC.PCA.LogReg.modvsnull.p", "DLC.PCA.LogReg.nullvsshuffled.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  #scale_color_manual(values = c("grey","black","#994F88")) +
+  #scale_fill_manual(values = c("grey","black","#994F88")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+print(p1)
+```
+
+
+## AS (45 min)
+
+Original plot where we compare kmeans 25 with best behavior and combined behavior (linear model): 
+
+```{r,fig.width= 3.5, fig.height=2}
+dat <- readRDS("../../data/AS45min_BIGSensitivity_AllData_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, na.rm = TRUE, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, na.rm = TRUE, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("DLC.PCA.",means$Group.1)] <- "PCA"
+means_AS45min <- means
+
+p1 <- ggplot(means_AS45min[means_AS45min$Group.1 %in% c("kmeans.25.BFAstats.p","classical.top.p", "DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(13, 11, 9, 7, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("grey","black","#994F88")) +
+  scale_fill_manual(values = c("grey","black","#994F88")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+print(p1)
+```
+
+Comparison between BFA and PCA models:
+
+```{r}
+p1 <- ggplot(means_AS45min[means_AS45min$Group.1 %in% c("kmeans.10.BFAstats.p", "kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "classical.top.p", "DLC.PCA.p", "DLC.PCA.LogReg.modvsnull.p", "DLC.PCA.LogReg.nullvsshuffled.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(13, 11, 9, 7, 5)) + 
+  #ylim(0.3, 8.3) +
+  #scale_color_manual(values = c("grey","black","#994F88")) +
+  #scale_fill_manual(values = c("grey","black","#994F88")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+print(p1)
+```
+
+
+
+## DREADD
+
+Original plot where we compare kmeans 25 with best behavior and combined behavior (linear model): 
+
+```{r,fig.width= 3.5, fig.height=2}
+dat <- readRDS("../../data/DREADD_BIGSensitivity_AllData_50sim.rds")
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("DLC.PCA.",means$Group.1)] <- "PCA"
+means_DREADD <- means
+
+p1 <- ggplot(means_DREADD[means_DREADD$Group.1 %in% c("kmeans.25.BFAstats.p","classical.top.p", "DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(7, 6, 5, 4, 3)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("grey","black","#994F88")) +
+  scale_fill_manual(values = c("grey","black","#994F88")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+print(p1)
+```
+
+
+```{r}
+p1 <- ggplot(means_DREADD[means_DREADD$Group.1 %in% c("kmeans.10.BFAstats.p", "kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "classical.top.p", "DLC.PCA.p", "DLC.PCA.LogReg.modvsshuffled.p", "DLC.PCA.LogReg.nullvsshuffled.p", "kmeans.25.BOAstats.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(7, 6, 5, 4, 3)) + 
+  #ylim(0.3, 8.3) +
+  #scale_color_manual(values = c("grey","black","#994F88")) +
+  #scale_fill_manual(values = c("grey","black","#994F88")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+print(p1)
+```
+Combined datasets
+```{r,fig.width=7, fig.height=4}
+CSI <- readRDS("../../data/CSI_BIGSensitivity_AllData_50sim.rds")
+CSI <- data.frame(Experiment = "CSI",CSI)
+AS45 <- readRDS("../../data/AS45min_BIGSensitivity_AllData_50sim.rds")
+AS45 <- data.frame(Experiment = "AS45",AS45)
+AS24 <- readRDS("../../data/AS24h_BIGSensitivity_AllData_50sim.rds")
+AS24 <- data.frame(Experiment = "AS24",AS24)
+CRS <- readRDS("../../data/CRS_BIGSensitivity_AllData_50sim.rds")
+CRS <- data.frame(Experiment = "CRS",CRS)
+DREADD <- readRDS("../../data/DREADD_BIGSensitivity_AllData_50sim.rds")
+DREADD <- data.frame(Experiment = "DREADD",DREADD)
+
+dat <- rbind(CSI,AS45,AS24,CRS,DREADD)
+dat[,-c(1:3)] <- -log10(dat[,-c(1:3)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, na.rm = TRUE,, by = list(dat$Experiment,dat$n_animals))
+sds <- aggregate(dat, FUN = sd, na.rm = TRUE, by = list(dat$Experiment,dat$n_animals))
+means <- means[,-c(3:5)]
+sds <- sds[,-c(3:5)]
+
+gs <- means$Group.2 / 2
+Exp <- means$Group.1
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+means$Experiment <- rep(Exp,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+means <- means[means$Group.1 != "Group.2",]
+
+#means <- means[means$GroupSize != 25,]
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("DLC.PCA.",means$Group.1)] <- "PCA"
+means_All <- means
+
+
+
+p1 <- ggplot(means_All[means_All$Group.1 %in% c("kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "classical.top.p", "DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("grey","black","red","darkred","red3")) +
+  scale_fill_manual(values = c("grey","black","red","darkred","red3")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  facet_wrap(~Experiment, scales = "free") + ggtitle("BFA vs Classical")
+p1
+
+
+p2.1 <- ggplot(means_All[means_All$Group.1 %in% c("kmeans.25.BFAstats.p", "kmeans.25.BOAstats.p","classical.top.p", "DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("grey","black","red","blue")) +
+  scale_fill_manual(values = c("grey","black","red","blue")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  facet_wrap(~Experiment, scales = "free") + ggtitle("BFA vs BOA")
+p2.1
+
+
+p2.2 <- ggplot(means_All[means_All$Group.1 %in% c("kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "kmeans.25.BOAstats.p", "kmeans.50.BOAstats.p","kmeans.100.BOAstats.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("red1","blue1","darkred","darkblue","red3","blue3")) +
+  scale_fill_manual(values = c("red1","blue1","darkred","darkblue","red3","blue3")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  facet_wrap(~Experiment, scales = "free") + ggtitle("BFA vs BOA")
+p2.2
+
+
+p3 <- ggplot(means_All[means_All$Group.1 %in% c("kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "DLC.PCA.LogReg.modvsnull.p", "DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("green3","black","red","darkred","red3")) +
+  scale_fill_manual(values = c("green3","black","red","darkred","red3")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  facet_wrap(~Experiment, scales = "free") + ggtitle("BFA vs logistic")
+p3
+
+
+p4 <- ggplot(means_All[means_All$Group.1 %in% c("kmeans.25.BFAstats.p", "kmeans.50.BFAstats.p", "kmeans.100.BFAstats.p", "DLC.PCA.LogReg.modvsnull.p", "DLC.PCA.LogReg.nullvsshuffled.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("green3","blue","red","darkred","red3")) +
+  scale_fill_manual(values = c("green3","blue","red","darkred","red3")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  facet_wrap(~Experiment, scales = "free") + ggtitle("BFA vs logistic")
+p4
+
+p5 <- ggplot(means_All[means_All$Group.1 %in% c("kmeans.25.BFAstats.p", "DLC.PCA.LogReg.modvsnull.p", "classical.top.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse(breaks = c(25, 20, 15, 10, 5)) + 
+  #ylim(0.3, 8.3) +
+  scale_color_manual(values = c("grey","black","#994F88")) +
+  scale_fill_manual(values = c("grey","black","#994F88")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  facet_wrap(~Experiment, scales = "free") + ggtitle("BFA vs logistic as it would look like in the publication")
+p5
+
+
+pdf("../../BIGSensitivity_AllData_50sim.pdf", height = 4, width = 7)
+print(p1)
+print(p2.1)
+print(p2.2)
+print(p3)
+print(p4)
+print(p5)
+dev.off()
+
+```

@@ -1,0 +1,192 @@
+---
+title: "SupplFigure_BSOID_8Clusters"
+author: "Fabienne Rössler"
+date: '2023-02-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("../DLCAnalyzer_Functions_v4.R")
+source("../UnsupervisedAnalysis_Functions.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Suppl. Figure for B-SOID (8 clusters)
+
+```{r}
+US <- readRDS("../../data/US_ComparisonClustering_CSI_processed.rds")
+```
+
+
+## Barplot for occurence of different clusters
+
+```{r, fig.height=1.6, fig.width=4}
+pdat <- US$Report$BSOID.8
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US$meta$filename)
+pdat$Group <- US$meta$Condition[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(30)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#0072B2")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(0:7)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/SupplFigure_BSOID8_barplot.pdf", height = 1.6, width = 4)
+print(p1)
+dev.off()
+
+US$Results[[1]]$Statistics$BSOID.8
+
+cluster_stats <- US$Results[[1]]$Statistics$BSOID.8
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+
+## Mapping from kmeans to BSOID
+
+```{r, fig.height=1.6, fig.width=9}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.70_CSI-BSOID.8`,pointsize = 4, hclust = TRUE)
+
+pdf("../../Plots/SupplFigure_BSOID8_confusionKmeans.pdf", height = 1.6, width = 9)
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.70_CSI-BSOID.8`,pointsize = 4, hclust = TRUE)
+dev.off()
+```
+
+
+## Circle plots for transitions between clusters
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow(US,lab = "BSOID.8")
+
+pdf("../../Plots/SupplFig_BSOID8_circlePlot.pdf", height = 5, width = 5)
+PlotBehaviorFlow(US,lab = "BSOID.8")
+dev.off()
+```
+
+Plot change in transitions between clusters:
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US, US$meta$Condition == "CSI", lab = "BSOID.8")
+
+pdf("../../Plots/SupplFig_BSOID8_circlePlot_delta.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US, US$meta$Condition == "CSI", lab = "BSOID.8")
+dev.off()
+
+#clusters Transition Stats
+head(US$Results[[1]]$TransitionStats$BSOID.8)
+
+trans_stats <- US$Results[[1]]$TransitionStats$BSOID.80$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+```
+
+## Boxplot for significant transition between CSI and control
+
+```{r, fig.height=3, fig.width=4}
+p1 <- PlotTransitions(US,lab = "BSOID.8", from = c("7", "6", "5", "7", "7"), to = c("4", "7", "7", "5", "6"), groupby = "Condition", cols = c("black","#0072B2"))
+p1 <- p1 + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+print(p1)
+
+pdf("../../Plots/SupplFigure_BSOID8_signTransition_boxplot.pdf", height = 3, width = 4)
+print(p1)
+dev.off()
+```
+
+## Results of bootstrapping analysis
+
+```{r, fig.width= 3, fig.height=1.7}
+PlotTransitionsStats(US, labels = "BSOID.8")
+
+pdf("../../Plots/SupplFigure_bootstrapping_BSOID8.pdf", height = 1.7, width = 3)
+PlotTransitionsStats(US, labels = "BSOID.8")
+dev.off()
+```
+
+
+## Sensitivity curves for VAME and BSOID
+
+```{r,fig.width= 3, fig.height=1.7}
+dat <- readRDS("../../data/XXX")
+
+dat[dat == 0] <- min(dat[dat != 0])
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+means$Type[grepl("VAME.",means$Group.1)] <- "VAME"
+means_CSI <- means
+
+p1 <- ggplot(means[means$Group.1 %in% c("BSOID.8.matstats.p","VAME.80.matstats.p","classical.top.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("#91C788", "grey","black","#F0932F")) +
+  scale_fill_manual(values = c("#91C788", "grey","black","#F0932F")) +
+  geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p1)
+
+pdf("../../Plots/SupplFig_BSOID8_SensitivityCurves_VAME_BSOID.pdf", height = 1.7, width = 3)
+print(p1)
+dev.off()
+```
+

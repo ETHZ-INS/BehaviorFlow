@@ -1,0 +1,138 @@
+---
+title: "ResilientPhenotype_IFS"
+author: "Fabienne Rössler"
+date: '2023-04-20'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer_Functions_v4.R")
+source("UnsupervisedAnalysis_Functions.R")
+library(rlang)
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(pROC)
+library(yardstick)
+library(rhdf5)
+set.seed(123)
+```
+
+# Categorize stressed animals into resilient and susceptible based on 2D embedding (UMAP)
+
+Load US object for IFS experiment.
+
+```{r}
+US <- readRDS("../data/US_IFS_25Clusters_processed.rds")
+
+US2 <- SplitUSData(US, select = US$meta$Session %in% c("OFT2"))
+```
+
+To define resilient and susceptible animals, we use the UMAP1 and UMAP2 coordinates of the 2D embeddings. We then define a function to find the best separating threshold between stressed and control animals for both coordinates.  
+
+```{r}
+setThreshold <- function(p) {
+  p$data$col <- as.factor(p$data$col)
+  
+  roc_X1 <- roc(p$data, response = col, predictor = X1)
+  ind_thres_x1 <- which.max(sqrt(roc_X1$sensitivities*roc_X1$specificities))
+  thres_x1 <- roc_X1$thresholds[ind_thres_x1]
+  
+  roc_X2 <- roc(p$data, response = col, predictor = X2)
+  ind_thres_x2 <- which.max(sqrt(roc_X2$sensitivities*roc_X2$specificities))
+  thres_x2 <- roc_X2$thresholds[ind_thres_x2]
+
+  thres <- NULL
+  thres$X1 <- thres_x1
+  thres$X2 <- thres_x2
+  
+  return(thres)
+}
+```
+
+We then search for the best separating thresholds several times, each time for a different random seed. This way the grouping into resilient and susceptible animals is more robust towards changing the random seed. 
+
+```{r}
+int_runs <- 101
+
+set.seed(123)
+list_seeds <- sample.int(10000, int_runs)
+groups_diffSeeds <- US2$meta[ , c("animal_ID", "group")]
+for (i in list_seeds) {
+  p1 <- Plot2DEmbedding(US2,transitionmatrices = "kmeans.25",colorby = "group", colors =  c("grey","red"), plot.sem = TRUE, method = "umap", seed = i)
+
+  curr_thres <- setThreshold(p1)
+  
+  p2 <- Plot2DEmbedding(US2,transitionmatrices = "kmeans.25",colorby = "animal_ID", colors =  c("grey","red"), plot.sem = TRUE, method = "umap", seed = i)
+
+  # Count number of TFS animals in each quadrant 
+  num_animals <- replicate(4, 0)
+  num_animals[1] <- length(p1$data$col[p1$data$X1 < curr_thres$X1 & p1$data$X2 >= curr_thres$X2 & p1$data$col == 'TFS'])
+  num_animals[2] <- length(p1$data$col[p1$data$X1 >= curr_thres$X1 & p1$data$X2 >= curr_thres$X2 & p1$data$col == 'TFS'])
+  num_animals[3] <- length(p1$data$col[p1$data$X1 >= curr_thres$X1 & p1$data$X2 < curr_thres$X2 & p1$data$col == 'TFS'])
+  num_animals[4] <- length(p1$data$col[p1$data$X1 < curr_thres$X1 & p1$data$X2 < curr_thres$X2 & p1$data$col == 'TFS'])
+  
+  ind_quadrant <- which.max(num_animals)
+  if (ind_quadrant == 1) {
+    ID_nonres <- p2$data$col[p1$data$X1 < curr_thres$X1 & p1$data$X2 >= curr_thres$X2 & p1$data$col == 'TFS']
+    ID_res <- p2$data$col[(p1$data$X1 >= curr_thres$X1 | p1$data$X2 < curr_thres$X2) & p1$data$col == 'TFS']
+  } else if (ind_quadrant == 2) {
+    ID_nonres <- p2$data$col[p1$data$X1 >= curr_thres$X1 & p1$data$X2 >= curr_thres$X2 & p1$data$col == 'TFS']
+    ID_res <- p2$data$col[(p1$data$X1 < curr_thres$X1 | p1$data$X2 < curr_thres$X2) & p1$data$col == 'TFS']
+  } else if (ind_quadrant == 3) {
+    ID_nonres <- p2$data$col[p1$data$X1 >= curr_thres$X1 & p1$data$X2 < curr_thres$X2 & p1$data$col == 'TFS']
+    ID_res <- p2$data$col[(p1$data$X1 < curr_thres$X1 | p1$data$X2 >= curr_thres$X2) & p1$data$col == 'TFS']
+  } else if (ind_quadrant == 4) {
+    ID_nonres <- p2$data$col[p1$data$X1 < curr_thres$X1 & p1$data$X2 < curr_thres$X2 & p1$data$col == 'TFS']
+    ID_res <- p2$data$col[(p1$data$X1 >= curr_thres$X1 | p1$data$X2 >= curr_thres$X2) & p1$data$col == 'TFS']
+  }
+
+  groups_diffSeeds <- cbind(groups_diffSeeds, res_ID = "control")
+  groups_diffSeeds[groups_diffSeeds$animal_ID %in% ID_nonres, ncol(groups_diffSeeds)] <- "susceptible"
+  groups_diffSeeds[groups_diffSeeds$animal_ID %in% ID_res, ncol(groups_diffSeeds)] <- "resilient"
+}
+
+
+# Count categorization of each animal as either resilient or susceptible
+groups_diffSeeds$num_resilient <- NULL
+groups_diffSeeds$num_resilient <- rowSums(groups_diffSeeds[ , 3:(2+int_runs)] == "resilient")/int_runs
+groups_diffSeeds$num_susceptible <- NULL
+groups_diffSeeds$num_susceptible <- rowSums(groups_diffSeeds[ , 3:(2+int_runs)] == "susceptible")/int_runs
+```
+
+Each stressed animal then gets either the class "resilient" or "susceptible" assigned (based on majority vote). We add this information to the meta data and save the US object.
+
+```{r}
+temp_meta <- cbind(US2$meta, resilient_ID = "control")
+temp_meta[groups_diffSeeds$num_susceptible>0.5, ncol(temp_meta)] <- "susceptible"
+temp_meta[groups_diffSeeds$num_resilient>0.5, ncol(temp_meta)] <- "resilient"
+
+temp_meta$perc_resilient <- NULL
+temp_meta$perc_resilient <- groups_diffSeeds$num_resilient
+
+meta_all <- US$meta
+assign <- match(meta_all$animal_ID, temp_meta$animal_ID)
+meta_all$resilient_ID <- temp_meta$resilient_ID[assign]
+meta_all$perc_resilient <- temp_meta$perc_resilient[assign]
+
+US$meta <- meta_all
+
+saveRDS(US,"../data/US_IFS_25Clusters_withResilience.rds")
+```
+
+

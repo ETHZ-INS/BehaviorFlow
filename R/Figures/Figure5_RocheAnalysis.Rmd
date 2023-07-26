@@ -1,0 +1,141 @@
+---
+title: "Figure5_transfer_RocheData"
+author: "Fabienne Rössler"
+date: '2023-06-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("../DLCAnalyzer_Functions_v4.R")
+source("../UnsupervisedAnalysis_Functions.R")
+library(rlang)
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(pROC)
+library(yardstick)
+set.seed(123)
+```
+
+# Figure 5
+
+```{r}
+US <- readRDS("../../data/US_YohimbineRoche_25Clusters_processed.rds")
+US <- TwoGroupAnalysis(US,group = US$meta$Group, lab = "kmeans.25_YohRoche")
+```
+
+
+## Behavior flow differences between saline and yohimbine
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US, grouping = US$meta$Group == "Yohimbine", lab = "kmeans.25_YohRoche")
+
+pdf("../../Plots/Figure5_behaviorFlow_RocheYohimbine.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US, grouping = US$meta$Group == "Yohimbine", lab = "kmeans.25_YohRoche")
+dev.off()
+
+US$Results[[1]]$TransitionStats$kmeans.25_YohRoche
+
+trans_stats <- US$Results[[1]]$TransitionStats$kmeans.25_YohRoche$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+```
+
+
+## BFA
+
+```{r, fig.width=3.6, fig.height=3.2}
+PlotTransitionsStats(US, labels = "kmeans.25_YohRoche")
+
+pdf("../../Plots/Figure5_bootstrapping_RocheYohimbine.pdf", height = 3.2, width = 3.6)
+PlotTransitionsStats(US, labels = "kmeans.25_YohRoche")
+dev.off()
+```
+
+```{r}
+PlotTransitionsStats(US, labels = "kmeans.25_YohRoche")
+```
+
+
+## 2D embedding
+
+```{r, fig.height=2.5, fig.width=5}
+US <- CalculateStabilizedTransitions(US, group = "Group",control = "Control",labels = "kmeans.25_YohRoche")
+
+p1 <- Plot2DEmbedding(US,transitionmatrices_stabilized = "kmeans.25_YohRoche",colorby = "Group",colors =  c("grey","#8B3564"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure5_2Dembedding_RocheYohimbine.pdf", height = 2.5, width = 5)
+print(p1)
+dev.off()
+```
+
+
+```{r, fig.height=2.5, fig.width=4.5}
+US$meta$Dosage <- factor(US$meta$Dosage)
+
+p1 <- Plot2DEmbedding(US,transitionmatrices_stabilized = "kmeans.25_YohRoche",colorby = "Dosage", colors =  c("grey","#1A3F5D", "#2C6B99", "#95C7EA"), plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure5_2Dembedding_Dosage_RocheYohimbine.pdf", height = 2.5, width = 4.5)
+print(p1)
+dev.off()
+```
+
+
+## Addition: Comparison between controls and different dosages
+
+### 1
+
+```{r}
+US1 <- SplitUSData(US, select = US$meta$Dosage %in% c("0", "1"))
+set.seed(123)
+US1 <- TwoGroupAnalysis(US1,group = US1$meta$Group)
+```
+
+```{r}
+PlotTransitionsStats(US1, labels = "kmeans.25_YohRoche")
+```
+
+### 3
+
+```{r}
+US3 <- SplitUSData(US, select = US$meta$Dosage %in% c("0", "3"))
+set.seed(123)
+US3 <- TwoGroupAnalysis(US3,group = US3$meta$Group)
+```
+
+```{r}
+PlotTransitionsStats(US3, labels = "kmeans.25_YohRoche")
+```
+
+
+### 6
+
+```{r}
+US6 <- SplitUSData(US, select = US$meta$Dosage %in% c("0", "6"))
+set.seed(123)
+US6 <- TwoGroupAnalysis(US6,group = US6$meta$Group)
+```
+
+```{r}
+PlotTransitionsStats(US6, labels = "kmeans.25_YohRoche")
+```
+
+
