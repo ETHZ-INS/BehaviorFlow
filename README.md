@@ -1,4 +1,5 @@
 - [Behavior Flow](#Behavior-Flow)
+- [Tutorial](#Tutorial)
   * [building the data object](#building-the-data-object)
     + [Loading the data](#loading-the-data)
       - [Loading from multiple CSV files](#loading-from-multiple-csv-files)
@@ -24,12 +25,25 @@ Behavior Flow
 
 This package enables efficient meta-analyses of unsupervised behavior analysis results. It builds a data object containing label data from multiple recordings/samples, with labeling data from different sources and metadata describing experimental design and grouping variables. The data object can be analyzed using helper functions for clustering-to-clustering mapping, Behavior Flow Analysis (BFA; statistical two group analyses), Behavior Flow Fingerprinting (BFF; 2d embedding with a per sample resolution), and more.
 
+Please head down to the Tutorial section if you want to apply this to your own data
+
+Optional: Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo (ZENODOLINK). 
+
+**1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the `\data` folder in the main `BehaviorFlow` directory. It contains a few pre-built US data objects that contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command `US <- readRDS("data/FILE.rds)` will allow convenient loading and playing around with all the big combined datasets without needing to create the datasets and pre-process them
+**2)** The raw DLC pose estimation `.csv` files can be found in `\data\SUBFOLDERS` for the corresponding experiment
+**3)** Video data has been deposited in `Videos.zip`. to figure out which video belongs to which DLCFile (pose estimation) best use the `METADATA.csv` or `METADATA.xlsx` files from zenodo. it containes combined metadata across all 411 recordings.
+
+Tutorial
+===========================================
+
 All the code contained in this markdown file is written so it can be
 directly run with the example data contained in the `/ExampleData`
 folder.
 
 All the code is encapsulated in the `R/UnsupervisedAnalysis_Functions.R`
-script. we first source this to load all functions. Also, ensure all the
+script.
+
+we first source this to load all functions. Also, ensure all the
 required packages below are installed.
 
 ``` r
