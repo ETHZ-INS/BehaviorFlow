@@ -25,7 +25,7 @@ Behavior Flow
 
 This package enables efficient meta-analyses of unsupervised behavior analysis results. It builds a data object containing label data from multiple recordings/samples, with labeling data from different sources and metadata describing experimental design and grouping variables. The data object can be analyzed using helper functions for clustering-to-clustering mapping, Behavior Flow Analysis (BFA; statistical two group analyses), Behavior Flow Fingerprinting (BFF; 2d embedding with a per sample resolution), and more.
 
-Please head down to the Tutorial section if you want to apply this to your own data
+Please head down to the Tutorial section if you want to apply this to your own data or play around with our example data
 
 Optional: Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
 
