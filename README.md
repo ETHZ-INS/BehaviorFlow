@@ -34,7 +34,7 @@ US <- readRDS("data/FILE.rds)`
 ```
 This allows convenient loading and playing around with all the big combined datasets.
 
-**Optional:** Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we deposited a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
+**Optional:** Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication (BIOARCHIVELINK). In this publication we released a huge dataset of 411 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo ([https://zenodo.org/record/8186065](https://zenodo.org/record/8186065)). 
 
 **1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the content of the `/data` folder into the same folder of the this package (`BehaviorFlow/data`). 
 
