@@ -1,5 +1,5 @@
-- [Behavior Flow](#Behavior-Flow)
-- [Tutorial](#Tutorial)
+- [Behavior Flow](#behavior-flow)
+- [Tutorial](#tutorial)
   * [building the data object](#building-the-data-object)
     + [Loading the data](#loading-the-data)
       - [Loading from multiple CSV files](#loading-from-multiple-csv-files)
@@ -15,11 +15,11 @@
     + [Mapping different label groups to each other](#mapping-different-label-groups-to-each-other)
   * [Grouped analyses](#grouped-analyses)
     + [Adding metadata](#adding-metadata)
-    + [statiatical two group comparisons and Behavior Flow Analysis](#statiatical-two-group-comparisons-and-Behavior-Flow-Analysis)
-    + [Behavior Flow Fingerprinting](#Behavior-Flow-Fingerprinting)
-    + [Behavior Flow Fingerprinting across multiple datasets](#Behavior-Flow-Fingerprinting-across-multiple-datasets)
+    + [statiatical two group comparisons and Behavior Flow Analysis](#statiatical-two-group-comparisons-and-behavior-flow-analysis)
+    + [Behavior Flow Fingerprinting](#behavior-flow-fingerprinting)
+    + [Behavior Flow Fingerprinting across multiple datasets](#behavior-flow-fingerprinting-across-multiple-datasets)
 
-
+    
 Behavior Flow
 ===========================================
 
