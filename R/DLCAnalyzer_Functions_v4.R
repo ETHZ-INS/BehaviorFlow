@@ -833,7 +833,7 @@ CreateSkeletonData <- function(t){
   dat$Ar2 <- GetPolygonAreas(t,c("hipr","hipl","bcl","bcr"))
   dat$Ar3 <- GetPolygonAreas(t,c("bcr","earr","earl","bcl"))
   dat$Ar4 <- GetPolygonAreas(t,c("earr","nose","earl"))
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   return(t)
 }
@@ -864,7 +864,7 @@ CreateSkeletonData_OFT <- function(t){
   dat$Ar4 <- GetPolygonAreas(t,c("earr","nose","earl"))
   dat$P1 <- as.integer(IsInZone(t,"nose","arena"))
   dat$P2 <- as.integer(IsInZone(t,"headcentre","arena"))
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   
   return(t)
@@ -907,7 +907,7 @@ CreateSkeletonData_OFT_v2 <- function(t){
   dat$Ar4 <- GetPolygonAreas(t,c("earr","nose","earl"))
   dat$P1 <- as.integer(IsInZone(t,"nose","arena"))
   dat$P2 <- as.integer(IsInZone(t,"headcentre","arena"))
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   
   return(t)
@@ -952,7 +952,7 @@ CreateSkeletonData_OFT_v3 <- function(t){
   dat$D2 <- GetDistanceToZoneBorder(t,"arena","neck")
   dat$D3 <- GetDistanceToZoneBorder(t,"arena","bodycentre")
   dat$D4 <- GetDistanceToZoneBorder(t,"arena","tailbase")
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   
   return(t)
@@ -1003,7 +1003,7 @@ CreateSkeletonData_OFT_v4 <- function(t){
   dat$Ar2 <- GetPolygonAreas(t,c("hipr","hipl","bcl","bcr"))
   dat$Ar3 <- GetPolygonAreas(t,c("bcr","earr","earl","bcl"))
   dat$Ar4 <- GetPolygonAreas(t,c("earr","nose","earl"))
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   
   return(t)
@@ -1048,7 +1048,7 @@ CreateSkeletonData_LDB<- function(t){
   dat$D2 <- apply(data.frame(a = GetDistanceToZoneBorder(t,"light","neck"), b = GetDistanceToZoneBorder(t,"dark","neck")), 1,FUN = function(x){min(x)})
   dat$D3 <- apply(data.frame(a = GetDistanceToZoneBorder(t,"light","bodycentre"), b = GetDistanceToZoneBorder(t,"dark","bodycentre")), 1,FUN = function(x){min(x)})
   dat$D4 <- apply(data.frame(a = GetDistanceToZoneBorder(t,"light","tailbase"), b = GetDistanceToZoneBorder(t,"dark","tailbase")), 1,FUN = function(x){min(x)})
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   
   return(t)
@@ -1089,7 +1089,7 @@ CreateSkeletonData_EPM <- function(t){
   dat$Ar2 <- GetPolygonAreas(t,c("hipr","hipl","bcl","bcr"))
   dat$Ar3 <- GetPolygonAreas(t,c("bcr","earr","earl","bcl"))
   dat$Ar4 <- GetPolygonAreas(t,c("earr","nose","earl"))
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- dat
   
   return(t)
@@ -1131,7 +1131,7 @@ CreateSkeletonData_FST_v2 <- function(t){
   dat$Ar2 <- GetPolygonAreas(t,c("hipr","hipl","bcl","bcr"))
   dat$Ar3 <- GetPolygonAreas(t,c("bcr","earr","earl","bcl"))
   dat$Ar4 <- GetPolygonAreas(t,c("earr","nose","earl"))
-  dat <- as.data.frame(dat) 
+  dat <- as.data.frame(na_replace(dat)) 
   t$features <- abs(dat)
   
   return(t)
