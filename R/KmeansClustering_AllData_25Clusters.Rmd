@@ -121,7 +121,7 @@ We now train a cluster classifier for each clustering (= label) that imitates th
 
 ```{r, eval = FALSE}
 ts <- readRDS("../data/TS_OriginalClustering.rds")
-for(i in names(ts[[1]]$labels[-c(1:7)])){
+for(i in names(ts[[1]]$labels)){
   print(paste("creating training set for:",i, sep = " "))
   for(j in names(ts)){
     ts[[j]] <- CreateTrainingSet(ts[[j]], integration_period = 15, label.group = i)
