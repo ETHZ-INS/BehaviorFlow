@@ -987,3 +987,28 @@ Plot2DEmbedding(US_multi,transitionmatrices_stabilized = "kmeans.25",colorby = "
     ## done.
 
 ![](README_files/figure-markdown_github/unnamed-chunk-46-1.png)
+
+
+
+Functions Glossary
+===========================================
+
+Main functions, intended to be used by user:
+
+  Function  | Description
+  ------------- | -------------
+  `LoadFromCSVs()`  | Loads labeling data from a folder with .csv files and builds USData object
+  `ExportAsCSVs()`  | Exports data from a USData object as .csv files
+  `LoadFromTrackingObject()`|  Loads labeling data from a list of TrackingData objects into a USData object
+  `SmoothLabels_US()` | Smooths labels of an object of Type USData
+  `AddFromCSVs()` | Adds more labels from .csv files to an existing USData object
+  `AddFromTrackingObject()` | Adds more labels from a list of TrackingData objects to an existing USData object
+  `AddFromBsoid()`|  Adds BSOID data from a folder to an existing object of type USData
+
+Auxillary functions, not intended to be used directly by the user:
+
+  Function  | Description
+  ------------- | -------------
+   `periodsum()`  | sums a numeric vector x over a integration period
+   `SmoothLabel()`  | smooths a character vector over a integration period
+  
