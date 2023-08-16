@@ -1004,6 +1004,33 @@ Main functions, intended to be used by user:
   `AddFromCSVs()` | Adds more labels from .csv files to an existing USData object
   `AddFromTrackingObject()` | Adds more labels from a list of TrackingData objects to an existing USData object
   `AddFromBsoid()`|  Adds BSOID data from a folder to an existing object of type USData
+  `AddFromVAME()`|  Adds VAME data from a folder to an existing object of type USData
+  `AddFromBsoid()`|  Adds BSOID data from a folder to an existing object of type USData
+  `CalculateMetrics()`|  Calculates a number of metrics (label occurences/time/onsets/offsets) for an object of type USData
+  `AddTransitionMatrixData()`|  Adds TransitionMatrix data to an object of type USData
+  `DropLabels()`|  Removes selected labels form an object of type USData
+  `FuseUSData()`|  Fuses two objects of type USData into one
+  `CalculateStabilizedTransitions()`|  Calculates stabilized transitionmatrix data from Transitionmatrix data for an object of type USData
+  `AddConfusionMatrix()`|  Adds confusionmatrix/matrices between selected labels to an object of type USData.
+  `PlotConfusionMatrix()`|  Plots a confusion matrix
+  `SplitUSData()`|  Cuts and object of type USData into a smaler object of type USData (i.e removing selected files)
+  `CutUSdata()`|  Cuts all label vectors of an object of type USdata into shorter versions (i.e shortening all files)
+  `USDataCheck()`|  runs an USData integrity check and returns TRUE (passed) or FALSE (failed)
+  `USDataReport()`|  Creates an overview Report of an object of type USData
+  `BehaviorTrainPlot()`|  Creates a behavior train plot for an selected labels of an object of type USData
+  `PlotBehaviorFlow()`|  Plots the aggregated behavior flow for an object of type USData
+  `PlotBehaviorFlow_Delta()`|  Plots the difference in behaviro flow between two groups for an object of type USData
+  `AddMetaData ()`|  Adds metadata to an object of type USData
+  `TwoGroupAnalysis()`|  Performs a two group analysis for an object of type USData
+  `TwoGroupAnalysis_Clusters()`|  Performs a two group analysis for an object of type USData with BFA performed on the cluster level (not the transition level)
+  `MultipleTwoGroupAnalysis()`|  Performs multiple two group analyses for an object of type USData, one for each group-group comparson
+  `TwoGroupAnalysis_PCA_Report()`|  Runs a PCA analysis on a Report group followed by a linear model analysis on PCs for group effect for an object of type USData
+   `TwoGroupAnalysis_PCA_Report()`|  Runs a PCA analysis on a Report group followed by a logistic regression model analysis on PCs for group effect for an object of type USData. WARNING: this method overestimates significance when used with low group numbers
+   `Plot2DEmbedding()`|  Plots a 2D embedding of selected transition matrices of all samples contained in an object of type USData
+   `PlotTransitionsStats()`|  Plots two group transition matrix distance stats that were generated with the function TwoGroupAnalysis()
+   `PlotClusterStats()`|  Plots two group transition matrix distance stats that were generated with the function TwoGroupAnalysis_Clusters()
+   `PlotTransitions()`|  Plots a selected transition group-wise for an object of type USData
+   `RenderClusterVideos()`|  Renders selected cluster videos for an object of type USData. requires a working ffmpeg install on a windows system (does not support mac or linux!)
 
 Auxillary functions, not intended to be used directly by the user:
 
@@ -1011,4 +1038,5 @@ Auxillary functions, not intended to be used directly by the user:
   ------------- | -------------
    `periodsum()`  | sums a numeric vector x over a integration period
    `SmoothLabel()`  | smooths a character vector over a integration period
+   `GetUniqueClusterValues()`  | Creates list of unique cluster values for labels of an object of type USData. 
   
