@@ -18,7 +18,7 @@
     + [statiatical two group comparisons and Behavior Flow Analysis](#statiatical-two-group-comparisons-and-behavior-flow-analysis)
     + [Behavior Flow Fingerprinting](#behavior-flow-fingerprinting)
     + [Behavior Flow Fingerprinting across multiple datasets](#behavior-flow-fingerprinting-across-multiple-datasets)
- - [Functions Glossary](#functions-glossary)
+- [Functions Glossary](#functions-glossary)
 
     
 Behavior Flow
