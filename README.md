@@ -56,7 +56,7 @@ All the code is encapsulated in the `R/UnsupervisedAnalysis_Functions.R`
 script.
 
 we first source this to load all functions. Also, ensure all the
-required packages below are installed.
+required packages below are installed. This package has been tested with R versions 3.6.1 and 4.1.2
 
 ``` r
 source("R/UnsupervisedAnalysis_Functions.R")
