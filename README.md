@@ -73,7 +73,7 @@ library(M3C)      #tested with v1.16.0
 For new R users: Use following command to install packages in R:
 
 ``` r
-install.packages("PACKAGE)   #i.e install.packages("plyr")
+install.packages("PACKAGE")   #i.e install.packages("plyr")
 
 # Info: M3C has to be installed through Bioconductor, for install use:
 if (!require("BiocManager", quietly = TRUE))
