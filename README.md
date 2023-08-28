@@ -61,7 +61,6 @@ required packages below are installed. This package has been tested with R versi
 ``` r
 source("R/UnsupervisedAnalysis_Functions.R")
 
-#Required libraries
 library(plyr)     #tested with v1.8.6
 library(ggplot2)  #tested with v3.3.5
 library(cowplot)  #tested with v1.1.1
@@ -69,6 +68,12 @@ library(circlize) #tested with v0.4.15
 library(imputeTS) #tested with v3.2
 library(pracma)   #tested with v2.3.8
 library(M3C)      #tested with v1.16.0
+```
+
+For new R users: Use following command to install packages in R:
+
+``` r
+install.packages("PACKAGE)   #i.e install.packages("plyr")
 
 # Info: M3C has to be installed through Bioconductor, for install use:
 if (!require("BiocManager", quietly = TRUE))
