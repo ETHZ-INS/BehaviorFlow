@@ -61,13 +61,13 @@ required packages below are installed.
 ``` r
 source("R/UnsupervisedAnalysis_Functions.R")
 #Required libraries
-library(plyr)
-library(ggplot2)
-library(cowplot)
-library(circlize)
-library(imputeTS)
-library(M3C)
-library(pracma)
+library(plyr)     #tested with v1.8.6
+library(ggplot2)  #tested with v3.3.5
+library(cowplot)  #tested with v1.1.1
+library(circlize) #tested with v0.4.15
+library(imputeTS) #tested with v3.2
+library(M3C)      #tested with v1.16.0
+library(pracma)   #tested with v2.3.8
 ```
 
 building the data object
