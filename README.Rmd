@@ -1,0 +1,588 @@
+---
+title: "README"
+author: "Lukas von Ziegler"
+date: '2023-08-29'
+output: 
+  html_document:
+    toc: true
+---
+
+    
+# Behavior Flow
+
+This package enables efficient meta-analyses of unsupervised behavior analysis results. It builds a data object containing label data from multiple recordings/samples, with labeling data from different sources and metadata describing experimental design and grouping variables. The data object can be analyzed using helper functions for clustering-to-clustering mapping, Behavior Flow Analysis (BFA; statistical two group analyses), Behavior Flow Fingerprinting (BFF; 2d embedding with a per sample resolution), and more.
+
+Please head down to the Tutorial section if you want to apply this to your own data or play around with our example data
+
+If you want to play around with our data that is already clustered and pre-processed you will find pre-build USdata objects in the existing `\data` folder. The pre-built US data objects contain data from many experiments (`US_AllData_25Clusters.rds`) or many label classes in one experiment (`US_CSI_SensitivityAssays_processed.rds`). These .rds files that can be loaded in R with the command:
+
+``` r
+US <- readRDS("data/FILE.rds)`
+```
+This allows convenient loading and playing around with all the big combined datasets.
+
+**Optional:** Furthermore, this repository contains all R scripts required for data processing and Figure generation for the following publication ([https://www.biorxiv.org/content/10.1101/2023.07.27.550778v1](https://www.biorxiv.org/content/10.1101/2023.07.27.550778v1)). In this publication we released a huge dataset of 443 distinct open field recordings across many experiments to the public. Due to size limits of github the raw data (Video recordings, Pose estimation files and metadata) has been deposited on zenodo. Data from our lab (411 recordings) can be accessed through [https://zenodo.org/record/8186065](https://zenodo.org/record/8186065). Data produced by Roche Pharma (32 recordings) can be accessed through [https://zenodo.org/record/8188683](https://zenodo.org/record/8188683). 
+
+**1)** In order to get the raw data from the publication download the `data.zip` file from zenodo, unzip it and place the content of the `/data` folder into the same folder of the this package (`BehaviorFlow/data`). 
+
+**2)** The raw DLC pose estimation `.csv` files can be found in `/data/SUBFOLDERS` for the corresponding experiment
+
+**3)** Video data has been deposited in `Videos.zip`. to figure out which video belongs to which DLCFile (pose estimation) best use the `METADATA.csv` or `METADATA.xlsx` files from zenodo. it containes combined metadata across all 411 recordings.
+
+**4)** Scripts in the `R` folder and subfolders will tell you step by step how we went from pose estimation data to unsupervised clustering results and how we then pre-processed this clustering data to achieve the final results and figures. More documentation about what each script does can be found in `R/README.md`
+
+# Tutorial
+
+
+All the code contained in this markdown file is written so it can be
+directly run with the example data contained in the `/ExampleData`
+folder.
+
+All the code is encapsulated in the `R/UnsupervisedAnalysis_Functions.R`
+script.
+
+we first source this to load all functions. Also, ensure all the
+required packages below are installed. This package has been tested with R versions 3.6.1 and 4.1.2
+
+```{r, warning=FALSE, message = FALSE}
+source("R/UnsupervisedAnalysis_Functions.R")
+
+library(plyr)     #tested with v1.8.6
+library(ggplot2)  #tested with v3.3.5
+library(cowplot)  #tested with v1.1.1
+library(circlize) #tested with v0.4.15
+library(imputeTS) #tested with v3.2
+library(pracma)   #tested with v2.3.8
+library(readr)    #tested with v2.1.2
+library(stringr)  #tested with v1.4.0
+library(M3C)      #tested with v1.16.0
+```
+
+For new R users: Use following command to install packages in R:
+
+```{r, eval = FALSE}
+install.packages("PACKAGE")   #i.e install.packages("plyr")
+
+# Info: M3C has to be installed through Bioconductor, for install use:
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("M3C")
+```
+
+## building the data object
+
+The first step is to build the data object, which can be done in two ways. The first method imports samples directly from a folder with multiple CSV files, one per sample, containing label data on a per-frame basis. The second method loads data directly from a list of TrackingData objects from our DLC Analyzer package(see <https://github.com/ETHZ-INS/DLCAnalyzer>).
+
+Lets explore the two import modes
+
+### Loading the data
+
+#### Loading from multiple CSV files
+
+Data can be loaded directly from CSV files, which is more accessible for users not using the DLC Analyzer framework for pre-processing. A folder with one CSV file per sample is required. You can find an example of such files and their structure under `ExampleData/CSVinput`. To load all files and build a USdata object, simply use:
+
+```{r}
+US <- LoadFromCSVs(path = "ExampleData/CSVinput", sep =";")
+```
+
+**Note:** we use the delimiter `";"` in the .csv files (since we work on
+a german system). some systems however use `","` as the default
+delimiter. if this is the case the `sep = ","` command can be used.
+
+#### Loading from TrackingData (DLC Analyzer)
+
+If you use the DLC Analyzer package (see
+<https://github.com/ETHZ-INS/DLCAnalyzer>) you can directly import data
+from your TrackingData.
+
+```{r}
+TS <- readRDS("ExampleData/ExampleTS.rds")
+length(TS)
+```
+
+```{r}
+names(TS[[1]]$labels)
+```
+
+as we can see this object has data from 59 files and each of them has 2
+different types of label data, output from the rearing classifier and
+kmeans clustering data (on a per frame basis)
+
+To transform this into a USData object we can simply use the following
+function.
+
+```{r}
+US <- LoadFromTrackingObject(TS)
+```
+
+*Tip: loading the data directly from the TrackingObject has some
+benefits as it will also conveniently add any Report data (i.e time in
+zones, distance moving etc) that was present in the TrackingObject to
+the USdata object. these can then be accessed with* `US$Report$raw` *and
+will be accessible for many downstream applications!*
+
+### Exploring the data structure of USData
+
+This section provides an overview of how data is saved as USdata and how to access and manipulate individual aspects. However, fully understanding this is only necessary if you want to write your own functions or understand how the supplied functions work. The package contains functions that can be used without fully understanding the underlying data structure.
+
+```{r}
+str(US,max.level = 1)
+```
+
+as you can see, the object US is a list of 7 elements (down stream
+functions can add further elements such as and Results). we can navigate
+through the different levels with the use of the `$` operator.  
+The first element of the list (`$files`) contains all the data of the 59
+files. if we have a quick look at the first file we can see that it
+contains:
+
+```{r}
+str(US$files[[1]], max.level = 1)
+```
+
+if we go deeper into data we see that it now contains two elements, one
+for each label class
+
+```{r}
+str(US$files[[1]]$data, max.level = 1)
+```
+
+finally, using the `$` operator we can navigate to individual labels and
+access the data
+
+```{r}
+head(US$files[[1]]$data$kmeans.25,100)
+```
+
+p.s here data and raw data are still identical since we did not perform
+any modifications to the data yet, however later on they may be
+different if we for example perform smoothing operations. USdata will
+always keep a copy of the original `raw_data`
+
+Also quite useful to get a sense what is in the dataset are the two
+vectors that contain label and file names of the USdata object.
+
+```{r}
+US$label_names
+```
+
+```{r}
+head(US$file_names)
+```
+
+### Adding more data to an existing USData object
+
+A USdata object can be extended with more data from both new CSV inputs and new TrackingObjects. There are two modes for adding new data, supported for both input types:
+
+**1)** new labels can be added to existing files  
+
+**2)** new files can be added to a USdata object  
+
+In both cases, it’s important to supply the same labels for each new and/or existing file.
+
+#### Adding new labels to existing files
+
+To add new labels, use a folder with CSV input data or a list of TrackingData. It’s important that the filenames of the old and new data are exactly the same, otherwise the new data won’t be added correctly See `ExampleData/CSVinput_newlabels` for examples of how the CSV input files should look.
+
+```{r}
+# From CSVs
+US$label_names
+US_addedlabels <- AddFromCSVs(US,"ExampleData/CSVinput_newlabels/")
+
+# From TrackingData
+TS_newlabels <- readRDS("ExampleData/ExampleTS_newlabels.rds")
+US_addedlabels <- AddFromTrackingObject(US, TS_newlabels)
+```
+
+Let's check what labels are in the USdata now
+
+```{r}
+US_addedlabels$label_names
+```
+
+As we can see, both methods added a new label class `kmeans.50` to the
+USdata object
+
+#### Adding new files
+
+We might want to add new files retrospectively. important is that the
+**new files have the same labels as the orignial data**. Any label
+that is not present in all files will be automatically removed from the
+data. Also, ensure that **none of the new files have the same name as
+already existing files!**  
+You can find the new files to be added in the folder
+`ExampleData/CSVinput_newfiles` if you want to see how they look like.
+
+```{r}
+length(US$files)
+```
+
+```{r}
+#load new files
+US_newfiles <- LoadFromCSVs("ExampleData/CSVinput_newfiles")
+length(US_newfiles$files)
+```
+
+```{r}
+#Fuse data
+US_fused <- FuseUSData(US,US_newfiles)
+length(US_fused$files)
+```
+
+As we see, our original USdata had 59 files, then we loaded 30 files
+from a different dataset and fused it into a new USdata that now has 89
+files
+
+### Removing files or labels from the dataset
+
+Sometimes, we might want to take a subset of files from the USdata object or drop some labels. To create a new USdata object with the first 10 samples, for example, we can use:
+
+```{r}
+US_split <- SplitUSData(US, include = US$file_names[1:10])
+length(US_split$files)
+```
+
+*Tip: there is also the option to use the function in different modes.
+i.e* `omit = US$file_names[1:10]` *keeps everything except for the first
+10 files while* `select =` *allows you to specify with a boolean vector
+(TRUE,FALSE) which files to keep.*
+
+If we want to remove a label we can use:
+
+```{r}
+US_dropped <- DropLabels(US,labels = "rear.classifier")
+length(US_dropped$files)
+```
+
+```{r}
+US_dropped$label_names
+```
+
+As we can see this function keeps all the files, while dropping the
+specified label(s).
+
+*Tip: to remove multiple labels we can use*
+`labels = c("label1","label2","label3")` *to remove all the specified
+labels*
+
+## Processing the data and runing basic analyses
+
+### Smoothing and creating a basic report
+
+After building the dataset we might want to do a number of processing
+steps to generate our first results.
+
+ A sensible first step is to smooth the labels, ensuring that single-frame missclusterings/missclassifications don’t impact the overall analysis. To smooth the data over ±5 frames, we can use:
+
+```{r}
+US <- SmoothLabels_US(US, integration_period = 5)
+```
+
+We can also calculate metrics such as the number of cluster/behavior onsets and offsets, as well as the number of frames spent with clusters/behaviors, using:
+
+```{r}
+US <- CalculateMetrics(US)
+```
+
+Now, we will find a Report for each label class under:
+
+```{r}
+str(US$Report, max.level = 1)
+```
+
+Let's have a look at rearing classifier results (where we have three
+possible classes: None = no rearing, Supported = supported rearing and
+Unsupported = unsupported rearing)
+
+```{r}
+head(US$Report$rear.classifier)
+```
+
+nframes summarizes for how many frames each label occurred and count
+will summarize the number of individual onsets/offsets pairs
+
+After adding onset and offset data, we can plot behavior trains to see how specific examples of labels map to other label groups using the following command:
+
+```{r}
+BehaviorTrainPlot(US, lab = "rear.classifier", val = "Supported",len = 50,n = 100, max_clust = 3)
+```
+
+we see that from the 3 clusters that map most often to supported rears
+cluster 1 describes rearing onset (first \~20 frames) most of the times,
+and clusters 11 and 12 define rearing offset most of the times
+
+### Calculating Transitionmatrices and ploting behavior flow
+
+Next, we calculate add trainsitionsmatrix for each label class. The
+transitionmatrix will contain information about how often a given
+cluster/behavior flows into a different cluster/behavior.
+
+```{r}
+US <- AddTransitionMatrixData(US)
+```
+
+the transitionmatrices will be saved in the individual files. to access
+the one of the first file for the kmeans.25 label group we can use:
+
+```{r}
+US$files[[1]]$transmatrix$kmeans.25
+```
+
+rows will tell you from where it flows, columns to where it flows. i.e
+here there were 22 transitions from cluster 11 to cluster 7
+
+Transitionmatrix data is crucial for many downstream applications. for
+example if we want to plot behavior flow across all samples this data is
+required
+
+```{r}
+PlotBehaviorFlow(US, lab = "kmeans.25")
+```
+
+### Mapping different label groups to each other
+
+We might want to know how two different label groups relate to each other. For example, we might want to know which of our kmeans clusters describe rearing behaviors as determined by a classifier. To do this, we first need to calculate the confusion matrix between each label group across all files.
+
+```{r}
+US <- AddConfusionMatrix(US)
+```
+
+Once this operation is performed we will find confusion matrix data in
+our USData
+
+```{r}
+US$ConfusionMatrix$`kmeans.25-rear.classifier`
+```
+
+we see for example that cluster 1 maps to supported rears in 42766
+frames across the whole dataset. A normalized version of the confusion
+matrix is also created which gives this information in percents (i.e 77%
+here)
+
+```{r}
+US$ConfusionMatrix_norm$`kmeans.25-rear.classifier`
+```
+
+We can further plot this by using:
+
+```{r}
+PlotConfusionMatrix(US$ConfusionMatrix_norm$`kmeans.25-rear.classifier`,pointsize = 5)
+```
+
+## Grouped analyses
+
+### Adding metadata
+
+In many cases, we might want to statistically assess if there is a difference between a control and test group. To do this, we first need to supply the USData object with metadata describing the experimental design. We can load the metadata from a .csv file, such as the one found in `ExampleData/Example_metadata.csv`
+
+```{r}
+head(US$file_names)
+```
+
+```{r}
+metadata <- read.table("ExampleData/Example_metadata.csv", sep = ";", header = T)
+head(metadata)
+```
+
+**Note:** in order to add this metadata to the USdata we need to ensure
+2 points  
+**1)** the metadata needs to contain one entry for each file in US  
+**2)** the row names of the `metadata` need to correspond to the
+file_names of `US`
+
+We can see that the metadtata contains the filenames under the name
+`"DLCFile"`. We change the rownames of metadata and ensure that we have
+an entry for each file in `US`
+
+```{r}
+rownames(metadata) <- metadata$DLCFile
+US$file_names %in% rownames(metadata)
+```
+
+Now we can add the metadata to the USdata using:
+
+```{r}
+US <- AddMetaData(US,metadata)
+str(US$meta)
+```
+
+as we can see the metadata has now been added to the USdata and can be
+easily accessed. If we want to know the Condition of the samples we can
+simply use
+
+```{r}
+US$meta$Condition
+```
+
+Next, lets investigate how behavior flows differently between CSI and
+Control animals for this we can now use:
+
+```{r}
+PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25")
+```
+
+This plot will show all transitions that are in average different
+between CSI and Control animals. If we more specifically want to see
+which transitions are upregulated or downregulated in CSI we instead use
+
+```{r}
+PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25", method = "up")
+```
+
+```{r}
+PlotBehaviorFlow_Delta(US,grouping = (US$meta$Condition == "CSI"), lab = "kmeans.25", method = "down")
+```
+
+### statiatical two group comparisons and Behavior Flow Analysis
+
+The previous plots showed average metrics that didn’t take variability into consideration, so we have to be careful not to over-interpret the results without running proper statistical analyses. Fortunately, there’s a function that can run all two-group comparisons with appropriate multi-testing corrections for cluster and transition occurences, as well as a Behavior Flow Analysis (BFA) which hollistically tests for a group difference across all transitions using a single command:
+
+```{r}
+US <- TwoGroupAnalysis(US, group = US$meta$Condition)
+```
+
+Results for this analysis were automatically added to the US object and
+can be accessed under:
+
+```{r}
+str(US$Results$`CSI-vs-Control`)
+```
+
+lets have a look at kmeans clusters and see if any are different between
+CSI and Control animals
+
+```{r}
+head(US$Results$`CSI-vs-Control`$Statistics$kmeans.25,10)
+```
+
+Indeed we see that a number of clusters are significant between CSI and
+Control even after FDR correction
+
+lets have a look if any transitions between clusters are different
+between CSI and Control animals
+
+```{r}
+head(US$Results$`CSI-vs-Control`$TransitionStats$kmeans.25$transitions,10)
+```
+
+
+Indeed we see that a number of transitions are significant between CSI
+and Control even after FDR correction
+
+And finally the package includes a bootstrapping method which we termed Behavior Flow Analysis (BFA) that
+statistically assesses if there is a group difference between CSI and
+Control when considering the overall difference in behavior flow between
+the two groups. Results can be visualized using:
+
+```{r}
+PlotTransitionsStats(US, labels = "kmeans.25")
+```
+
+
+### Behavior Flow Fingerprinting
+
+In this section, we introduce the concept of Behavior Flow Fingerprinting (BFF). This method looks at all transitions for each sample and tries to determine how close each sample is to other samples. We can further color by treatment variables, which can be categorical or continuous. The resulting 2D embedding is easier to understand and allows us to see how close groups are to each other and how many outliers are present in general.
+To perform a BFF across all files based on transitions we can use:
+
+```{r}
+Plot2DEmbedding(US, transitionmatrices = "kmeans.25", colorby = "Condition", color = c("grey","red"), plot.sem = T)
+```
+
+
+*Tip: Default the function will perform a UMAP embedding. To perform a
+t-sne embedding instead we can use the function with the parameter:*
+`method = "tsne"` *This will automatically perform a t-sne embedding for
+which we can also change the perplexity manually (see below)*
+
+2D embedding works better the more distinct samples we present. Keep in
+mind that embedding with very low numbers will not yield good results,
+and at some point the algorithms will refuse to work with low number
+sizes. For tsne we can work with lower samples by specifying the
+´perplex´ to be small:
+
+```{r}
+US_small <- SplitUSData(US,include = US$file_names[1:10])
+Plot2DEmbedding(US_small, transitionmatrices = "kmeans.25", colorby = "Condition", color = c("grey","red"), method = "tsne", perplex = 3)
+```
+
+
+while this embedding will work with lower numbers as you may note that
+the quality is getting much worse. It is highly recommended to use
+sample sizes of \~ \> 20 if possible for a decent 2D embedding
+
+### Behavior Flow Fingerprinting across multiple datasets
+
+Often we might want to compare data across multiple datasets and see if
+there are any phenotypes that are close to each other. We start by
+loading a already prepared USdata object from a .rds file that contains
+clustering data from 3 different datasets
+
+```{r}
+US_multi <- readRDS("ExampleData/ExampleUS_Multidataset.rds")
+```
+
+lets get a bit of an overview over the datasets:
+
+```{r}
+names(US_multi$meta)
+```
+
+```{r}
+table(US_multi$meta$Experiment)
+```
+
+```{r}
+table(paste(US_multi$meta$Experiment, US_multi$meta$Condition, sep = "-"))
+```
+
+As we can see we have 3 different datasets, with 59, 30 and 20
+replicates respectively. we see that all three datasets have control
+groups, and different treatment groups (CSI = chronic social instabiliy,
+Swim = forced swim stress, Yohimbin = Yohimbine injection
+(pharmacolgically induced stress))
+
+We start by embedding data of the control groups to see if there are any
+inter-experiment differences using BFF
+
+```{r}
+US2 <- SplitUSData(US_multi,select = US_multi$meta$Condition == "Control")
+Plot2DEmbedding(US2,transitionmatrices = "kmeans.25",colorby = "Experiment", plot.sem = T)
+```
+
+Indeed, we find that even Control groups between the different
+experiments vary somewhat. in order to adress this problem we can use a
+normalization approach to stabilize transitions of datasets to the
+control groups. for this we have to specify for all the 3 subsets what
+we set our control group to
+
+```{r}
+#Stabilize the CSI_SA experiment samples to their control group
+US_multi <- CalculateStabilizedTransitions(US_multi, group = "Condition",control = "Control",subset = US_multi$meta$Experiment == "CSI_SA")
+```
+
+```{r}
+#Stabilize the FST experiment samples to their control group
+US_multi <- CalculateStabilizedTransitions(US_multi, group = "Condition",control = "Control",subset = US_multi$meta$Experiment == "FST")
+```
+
+
+```{r}
+#Stabilize the Tun_Yoh experiment samples to their control group
+US_multi <- CalculateStabilizedTransitions(US_multi, group = "Condition",control = "Control",subset = US_multi$meta$Experiment == "Tun_Yoh")
+```
+
+
+```{r}
+US2 <- SplitUSData(US_multi,select = US_multi$meta$Condition == "Control")
+Plot2DEmbedding(US2,transitionmatrices_stabilized = "kmeans.25",colorby = "Experiment", plot.sem = T)
+```
+
+
+We can see that now the control groups have been fixed on each other. we
+can now plot the full data with the Conditions colored
+
+```{r}
+Plot2DEmbedding(US_multi,transitionmatrices_stabilized = "kmeans.25",colorby = "Condition", plot.sem = T, colors = c("grey","#3296df","#e8b220","#ec5230"))
+```
+
+
