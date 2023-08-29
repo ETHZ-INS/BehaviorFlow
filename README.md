@@ -69,6 +69,8 @@ library(cowplot)  #tested with v1.1.1
 library(circlize) #tested with v0.4.15
 library(imputeTS) #tested with v3.2
 library(pracma)   #tested with v2.3.8
+library(readr)    #tested with v2.1.2
+library(stringr)  #tested with v1.4.0
 library(M3C)      #tested with v1.16.0
 ```
 
