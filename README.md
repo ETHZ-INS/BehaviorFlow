@@ -48,6 +48,8 @@ This allows convenient loading and playing around with all the big combined data
 Tutorial
 ===========================================
 
+To get started efficiently, download the entire github reposiotry, unzip it and open the `README.Rmd` file in RStudio.
+
 All the code contained in this markdown file is written so it can be
 directly run with the example data contained in the `/ExampleData`
 folder.
