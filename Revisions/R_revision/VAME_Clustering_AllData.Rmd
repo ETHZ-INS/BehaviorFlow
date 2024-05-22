@@ -1,0 +1,255 @@
+---
+title: "VAME_Clustering_AllData"
+author: "Lukas von Ziegler"
+date: '2024-02-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Import results of VAME for different number of clusters (25, 75 and 100) and train cluster classifier
+
+First, we need to get all labeled files from VAME into one folder (one for each clustering):
+
+```{r}
+# Copy all VAME-results files into one folder
+path_VAME <- "../VAME/XXX/"
+path_output <- "../VAME/YYY/"
+
+list_folders <- list.files(path_VAME, full.names = TRUE)
+list_folders <- list_folders[-1]
+
+clusters <- c(25, 75, 100)
+for (c in clusters) {
+  path_currOutput <- paste(path_output, paste(c, "_clusters/", sep=""), sep = "/")
+  for (i in list_folders){
+    path_currFolder <- paste(i, "VAME", paste("hmm-", c, sep=""), sep = "/")
+    file <- grep(pattern = paste(c, "_km", sep=""),list.files(path_currFolder, full.names = TRUE),value = TRUE)
+    file.copy(from=file, to=path_currOutput)
+  }
+}
+
+# Rename VAME-results files so they match the original tracking file names
+match_table <- read.csv("../metadata/AllData_25Clusters.csv", sep = ";")
+for (c in clusters) {
+  path_currOutput <- paste(path_output, paste(c, "_clusters/", sep=""), sep = "/")
+  for (j in 1:dim(match_table)[1]) {
+    curr_file <- grep(pattern = paste(match_table$ID[j], ".npy", sep = ""), list.files(path_currOutput, full.names = TRUE),value = TRUE)
+    if (length(curr_file) > 0) {
+      file.rename(curr_file, paste(path_currOutput, c, "_km_label_", stringr::str_remove(match_table$DLCFile[j], ".csv"), ".npy", sep = ""))
+    }
+  }
+}
+```
+
+We now load the TS file with all files used for the VAME clustering and add the labels from VAME:
+
+```{r, eval = FALSE}
+np <- import("numpy")
+delay <- 15
+
+ts <- readRDS("../data/Original_Clusters.rds")
+path_VAME <- "../VAME/YYY/"
+
+list_orgFiles <- names(ts)
+
+clusters <- c(25, 75, 100)
+
+for (c in clusters) {
+  path_currVAME <- paste(path_VAME, paste(c, "_clusters/", sep = ""), sep = "/")
+  list_VAMEFiles <- list.files(path_currVAME)
+  
+  for (j in list_orgFiles) {
+    lab_name <- paste("VAME.", c, sep = "")
+    ts[[j]]$labels[[lab_name]] <- rep(NA,length(ts[[j]]$frames))
+    
+    range_orig <- 1:length(ts[[j]]$frames)
+    if(length(grep(stringr::str_replace(j, ".csv", ""), x = list_VAMEFiles)) == 1){
+      print(paste("found file:",j, "in folder, adding" , sep = " "))
+      path_npy <- paste(path_currVAME, list_VAMEFiles[grep(stringr::str_replace(j, ".csv", ".npy"), x = list_VAMEFiles)], sep = "")
+      dat <- np$load(path_npy)
+      dat <- as.character(dat)
+      range_VAME <- 0:length(dat)
+      range_VAME <- range_VAME[range_VAME %in% range_orig]
+      range_file <- (delay+1):(length(range_VAME)+delay)
+      range_file <- range_file[range_file %in% range_orig]
+      
+      if(length(range_VAME)!= 0){
+        ts[[j]]$labels[[lab_name]][range_file] <- dat[range_VAME]
+      }
+    }
+  
+  }
+}
+```
+
+Now we safe the data:
+
+```{r, eval = FALSE}
+for(i in names(ts)){
+  ts[[i]]$train_x <- NULL
+}
+
+saveRDS(ts,"../data/Original_Clusters_with_VAME.rds")
+```
+
+Then, we train a cluster classifier to imitate the VAME clustering:
+
+```{r, eval = FALSE}
+ts <- readRDS("../data/Original_Clusters_with_VAME.rds")
+
+for(i in names(ts[[1]]$labels[-c(1:8)])){
+  print(paste("creating training set for:",i, sep = " "))
+  for(j in names(ts)){
+    ts[[j]] <- CreateTrainingSet(ts[[j]], integration_period = 15, label.group = i)
+  }
+  MLData <- CombineTrainingsData(ts,shuffle = TRUE)
+
+#initialize model
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 1024, activation = 'relu', input_shape = c(MLData$parameters$N_input),kernel_regularizer = regularizer_l2(l = 0)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = MLData$parameters$N_features, activation = 'softmax')
+
+#define optimizer
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+
+#train model
+history <- model %>% fit(
+  MLData$train_x, MLData$train_y, 
+  epochs = 10, batch_size = 512, 
+  validation_split = 0
+)
+
+save_model_hdf5(model,paste("../kmeans_classifiers_revision/",i,".model.hdf5", sep = ""))
+saveRDS(MLData$parameters,file = paste("../kmeans_classifiers_revision/",i,".model.PARAMETERS.rds", sep = ""))
+}
+```
+
+
+## Apply VAME.25 cluster classifier (using our features) to data
+
+
+```{r, eval = FALSE}
+model_classifier <- load_model_hdf5("../rearing_classifier/Rearing_Classifier.rds")
+model_classifier_para <-  readRDS("../rearing_classifier/Rearing_Classifier_PARAMETERS.Rds")
+
+model_VAME25 <- load_model_hdf5("../kmeans_classifiers_revision/VAME.25.model.hdf5")
+model_VAME25_para <- readRDS("../kmeans_classifiers_revision/VAME.25.model.PARAMETERS.rds")
+
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 42*42, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  
+  Tracking <- ClassifyBehaviors(Tracking, model_classifier, model_classifier_para)
+  Tracking <- OFTAnalysis(Tracking, points = "bodycentre" ,movement_cutoff = 5, integration_period = 5)
+  Tracking$labels$rear.classifier <- Tracking$labels$classifications
+  
+  Tracking <- ClassifyBehaviors(Tracking, model_VAME25, model_VAME25_para)
+  Tracking$labels$VAME.25 <- Tracking$labels$classifications
+  
+  Tracking$labels$classifications <- NULL
+  Tracking$train_x <- NULL
+  return(Tracking)
+}
+
+
+#CSI data
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+
+#FST data
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+
+#Yohimbin data
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#DREADD data
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts_transfer <- RunPipeline(files,path,pipeline)
+
+#CRS data
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts_transfer <- append(ts_transfer,RunPipeline(files,path,pipeline))
+
+
+for(i in names(ts)){
+  ts[[i]]$train_x <- NULL
+}
+
+for(i in names(ts_transfer)){
+  ts_transfer[[i]]$train_x <- NULL
+}
+
+saveRDS(ts,"../data/TS_OriginalClustering_VAME.rds")
+saveRDS(ts_transfer,"../data/TS_TransferedClustering_VAME.rds")
+
+```
+
+```{r, eval = FALSE}
+US <- LoadFromTrackingObject(append(ts,ts_transfer))
+meta_transfer <- read.table("../metadata/AllData_25Clusters.csv", sep = ";", header = T)
+rownames(meta_transfer) <- meta_transfer$DLCFile
+meta_transfer$DLCFile <- NULL
+
+US <- AddMetaData(US, meta_transfer)
+
+saveRDS(US,"../data_revision/US_AllData_VAME.rds")
+```
+
+
+```{r, eval = FALSE}
+US <- readRDS("../data_revision/US_AllData_VAME.rds")
+
+US <- SmoothLabels_US(US, 5)
+
+US <- CalculateMetrics(US)
+
+US <- AddTransitionMatrixData(US)
+
+saveRDS(US,"../data_revision/US_AllData_VAME.rds")
+```

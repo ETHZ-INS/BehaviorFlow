@@ -1,0 +1,98 @@
+---
+title: "VAME_Analysis_25Clusters"
+author: "Lukas von Ziegler"
+date: '2024-02-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Analysis of files from original clustering for VAME.25
+
+```{r}
+US <- readRDS("../data_revision/US_AllData_VAME.rds")
+
+US1 <- SplitUSData(US, select = US$meta$Session %in% c("PostCSI"))
+US1 <- TwoGroupAnalysis(US1,group = US1$meta$Condition, lab = "VAME.25")
+
+US2 <- SplitUSData(US, select = US$meta$Session %in% c("FST45min"))
+US2 <- TwoGroupAnalysis(US2,group = US2$meta$Treatment, lab = "VAME.25")
+
+US2_24h <- SplitUSData(US, select = US$meta$Session %in% c("FST24h"))
+US2_24h <- TwoGroupAnalysis(US2_24h,group = US2_24h$meta$Treatment, lab = "VAME.25")
+
+US3 <- SplitUSData(US, select = US$meta$Session == "PostYoh" & US$meta$Condition == "Control")
+US3 <- TwoGroupAnalysis(US3,group = US3$meta$Treatment, lab = "VAME.25")
+
+US4 <- SplitUSData(US,select = US$meta$Experiment %in% c("CRS"))
+US4 <- TwoGroupAnalysis(US4,group = US4$meta$Condition, lab = "VAME.25")
+
+US5 <- SplitUSData(US,select = US$meta$Experiment %in% c("DREADD"))
+US5_Binned <- CreateBinnedData(US5, 15000, 2)
+US5_Binned <- CalculateMetrics(US5_Binned)
+US5_Binned <- AddTransitionMatrixData(US5_Binned)
+US5_first <- SplitUSData(US5_Binned, select = US5_Binned$meta$bin_int == 1)
+US5_first <- TwoGroupAnalysis(US5_first,group = US5_first$meta$Treatment, lab = "VAME.25")
+
+US_all <- SplitUSData(US, select = US$meta$Session %in% c("CRS1","PostCSI","FST45min","PostYoh"))
+US_all <- SplitUSData(US_all, omit = names(US_all$files)[US_all$meta$Condition == "Tunnel"] )
+US_all <- FuseUSData(US_all, US5_first)
+```
+
+## BFA
+```{r, fig.width=5, fig.height=2.5}
+PlotTransitionsStats(US1, labels = "VAME.25")
+
+PlotTransitionsStats(US2, labels = "VAME.25")
+PlotTransitionsStats(US2_24h, labels = "VAME.25")
+
+PlotTransitionsStats(US3, labels = "VAME.25")
+
+PlotTransitionsStats(US4, labels = "VAME.25")
+
+PlotTransitionsStats(US5_first, labels = "VAME.25")
+```
+
+
+## 2D embedding
+
+```{r, fig.width=5, fig.height=4}
+US_all <- CalculateStabilizedTransitions(US_all,"Condition","Control",subset = US_all$meta$Session == "CRS1")
+US_all <- CalculateStabilizedTransitions(US_all,"Condition","Control",subset = US_all$meta$Session == "PostCSI")
+US_all <- CalculateStabilizedTransitions(US_all,"Treatment","Control",subset = US_all$meta$Session == "FST45min")
+US_all <- CalculateStabilizedTransitions(US_all,"Treatment","Saline",subset = US_all$meta$Session == "PostYoh")
+US_all <- CalculateStabilizedTransitions(US_all,"Treatment","saline",subset = US_all$meta$Session == "DREADD")
+
+US_all$meta$Embedding <- "Control"
+US_all$meta$Embedding[US_all$meta$Session == "CRS1" & US_all$meta$Condition != "Control"] <- "CRS"
+US_all$meta$Embedding[US_all$meta$Session == "PostCSI" & US_all$meta$Condition != "Control"] <- "CSI"
+US_all$meta$Embedding[US_all$meta$Session == "FST45min" & US_all$meta$Treatment != "Control"] <- "FST_45min"
+US_all$meta$Embedding[US_all$meta$Session == "PostYoh" & US_all$meta$Treatment != "Saline"] <- "Yohimbin"
+US_all$meta$Embedding[US_all$meta$Session == "DREADD" & US_all$meta$Treatment != "saline"] <- "DREADD"
+
+p1 <- Plot2DEmbedding(US_all,transitionmatrices_stabilized = "VAME.25", colorby = "Embedding", colors = c("grey","#009E73","#0072B2","#E69F00", "#D52800", "#CC79A7"), seed = 123,
+                      plot.sem = TRUE)
+p1
+```
