@@ -1,0 +1,180 @@
+---
+title: "Analysis_IFS_Shockbox"
+author: "Lukas von Ziegler"
+date: '2024-01-12'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+
+# IFS Shockbox Analysis
+
+First, lets pre-process the US data
+
+```{r, eval=FALSE}
+US <- readRDS("../data_revision/US_IFS1_shockbox.rds")
+
+US <- SmoothLabels_US(US, 5)
+
+US <- CalculateMetrics(US)
+
+US <- AddTransitionMatrixData(US)
+
+saveRDS(US,"../data_revision/US_IFS1_shockbox.rds")
+```
+
+# Standard analysis comparing IFS vs. control
+
+```{r}
+US <- readRDS("../data_revision/US_IFS1_shockbox.rds")
+
+US_TFS <- SplitUSData(US, select = US$meta$session == "TFS")
+
+US_TFS <-TwoGroupAnalysis(US_TFS,group = US_TFS$meta$group)
+```
+
+
+```{r, fig.height=1.9, fig.width=5.5}
+pdat <- US_TFS$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+#assign <- match(pdat$filename, US_TFS$meta$filename)
+pdat$Group <- US_TFS$meta$group
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(20)
+
+pdat_temp <- pdat[pdat$Group == "Ctrl", ]
+df$SEM[df$Group=="Ctrl"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(15)
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#6CB6E0")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+cluster_stats <- US_TFS$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US_TFS, grouping = US_TFS$meta$group == "IFS", lab = "kmeans.25")
+
+trans_stats <- US_TFS$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+```
+
+```{r, fig.height=2, fig.width=6}
+PlotTransitionsStats(US_TFS)
+```
+
+```{r, fig.height=3.2, fig.width=4.5}
+US_TFS <- CalculateStabilizedTransitions(US_TFS, group = "group",control = "Ctrl",labels = "kmeans.25")
+p <- Plot2DEmbedding(US_TFS,transitionmatrices_stabilized = "kmeans.25",colorby = "group", colors =  c("grey", "#6CB6E0"), plot.sem = TRUE, method = "umap", seed = 123)
+p
+```
+
+```{r, eval = FALSE}
+clusters <- GetUniqueClusterValues(US_TFS)[[1]]
+
+#offset determined by 300/fps
+offset = 300/25
+
+RenderClusterVideos(US_TFS, labels = "kmeans.25", cluster.values= clusters , "../NEW_DATA/02_TFS/", video.format = ".mp4", n = 5, random = TRUE, output.folder = "Examples_IFS_Shockbox", exp.name = "IFS_shock", fps = 25, min.length.s = 0, lag.s = 0, offset.s = offset)
+```
+
+## Bin analysis of shock session
+
+```{r, fig.width= 5, fig.height=4}
+US <- readRDS("../data_revision/US_IFS1_shockbox.rds")
+
+US_TFS <- SplitUSData(US, select = US$meta$session == "TFS")
+
+US_TFS <- CreateBinnedData(US_TFS, binlength = 25 * 60 * 5, max_n_bin = 5)
+
+US_TFS <- CalculateMetrics(US_TFS)
+US_TFS <- AddTransitionMatrixData(US_TFS)
+
+US_TFS$meta$Group_bin <- paste(US_TFS$meta$group, US_TFS$meta$bin)
+
+Plot2DEmbedding(US_TFS, transitionmatrices = "kmeans.25", colorby = "Group_bin", colors = c("#B2BCEC","#7886CB","#4E60B7","#283A94","#071B7B","#E89698","#C36163","#9E3436","#831517","#6D0002"), plot.sem = T)
+
+dat <- Plot2DEmbedding(US_TFS, transitionmatrices = "kmeans.25", colorby = "Group_bin", colors = c("#B2BCEC","#7886CB","#4E60B7","#283A94","#071B7B","#E89698","#C36163","#9E3436","#831517","#6D0002"))
+
+dat <- dat$data
+dat$ID <- US_TFS$meta$animal_ID
+ggplot(dat,aes(X1,X2, color = col)) + geom_point() + geom_line(data = dat, aes(X1,X2,group = ID), color = "grey")+ scale_color_manual(values = c("#B2BCEC","#7886CB","#4E60B7","#283A94","#071B7B","#E89698","#C36163","#9E3436","#831517","#6D0002")) + theme_bw() + theme(panel.grid = element_blank())
+```
+
+### Statistical analysis of shock effects over time
+
+```{r, fig.width= 6, fig.height=5}
+US_TFS_shock <- SplitUSData(US_TFS, select = US_TFS$meta$group == "IFS")
+
+US_TFS_shock <- MultipleTwoGroupAnalysis(US_TFS_shock, group = US_TFS_shock$meta$bin)
+
+#delete any non adjacent analyses
+US_TFS_shock$Results <- US_TFS_shock$Results[c(1,5,8,10)]
+
+PlotTransitionsStats(US_TFS_shock)
+```
+
+
+### Statistical analysis of control changes over time
+ 
+```{r, fig.width= 6, fig.height=5}
+US_TFS_shock <- SplitUSData(US_TFS, select = US_TFS$meta$group == "Ctrl")
+
+US_TFS_shock <- MultipleTwoGroupAnalysis(US_TFS_shock, group = US_TFS_shock$meta$bin)
+
+#delete any non adjacent analyses
+US_TFS_shock$Results <- US_TFS_shock$Results[c(1,5,8,10)]
+
+PlotTransitionsStats(US_TFS_shock)
+```
+
+
+

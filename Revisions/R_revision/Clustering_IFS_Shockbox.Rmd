@@ -1,0 +1,243 @@
+---
+title: "Clustering_IFS_Shockbox"
+author: "Lukas von Ziegler"
+date: '2024-01-12'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Clustering the IFS shockbox sessions with kmeans.25
+
+here we run a new kmeans 25 clustering for all IFS shockbox samples
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+set.seed(123)
+```
+
+# k-means clustering of multiple datasets
+
+In this script, we run k-means clustering for 25 clusters on a subset of our data. We then train a cluster classifier to imitate the different clustering results and apply it to all data.
+
+Again, first we define our pipeline.
+
+```{r, eval = FALSE}
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 29.5*29.5, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- CreateTestSet(Tracking, integration_period = 15)
+  return(Tracking)
+}
+```
+
+Due to memory limits we do not want to run the unsupervised clustering on all files. Instead, we select 10 files randomly from each experiment used for the "original" clustering.
+
+```{r, eval = FALSE}
+#number of files to include in each
+n_files <- 10
+
+#TFS session
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(sample(files)[1:n_files],path,pipeline)
+
+#EX1
+path <- ".../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+
+#EX2
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+#EX3
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+#EX4
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+#EX5
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+#EX6
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+#lets ensure we have 70 files, 10 of each experiment
+names(ts)
+```
+
+We are now ready to run the unsupervised clustering. We run k-means on the selection of data for 25 clusters
+
+```{r, eval = FALSE}
+centers <- c(25)
+
+for(i in centers){
+  ts <- UnsupervisedClusteringKmeans(ts, N_clusters = i,Z_score_Normalize = TRUE)
+  for(j in names(ts)){
+    ts[[j]]$labels[[paste("kmeans",i,sep = ".")]] <- ts[[j]]$labels$unsupervised
+    ts[[j]]$labels$unsupervised <- NULL
+  }
+}
+```
+
+```{r, eval = FALSE}
+ts2 <- ts
+for(i in names(ts2)){
+  ts2[[i]]$train_x <- NULL
+}
+saveRDS(ts2,"../data/TS_IFS_Shockbox_OriginalClustering.rds")
+```
+
+
+We now train a cluster classifier for each clustering (= label) that imitates the grouping.
+
+```{r, eval = FALSE}
+ts <- readRDS("../data/TS_IFS_Shockbox_OriginalClustering.rds")
+for(i in names(ts[[1]]$labels)){
+  print(paste("creating training set for:",i, sep = " "))
+  for(j in names(ts)){
+    ts[[j]] <- CreateTrainingSet(ts[[j]], integration_period = 15, label.group = i)
+  }
+  
+  MLData <- CombineTrainingsData(ts,shuffle = TRUE)
+
+#initialize model
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 1024, activation = 'relu', input_shape = c(MLData$parameters$N_input),kernel_regularizer = regularizer_l2(l = 0)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = MLData$parameters$N_features, activation = 'softmax')
+
+#define optimizer
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+
+#train model
+history <- model %>% fit(
+  MLData$train_x, MLData$train_y, 
+  epochs = 30, batch_size = 512, 
+  validation_split = 0
+)
+
+save_model_hdf5(model,paste("../kmeans_classifiers_revision/",i,"_shockbox.model.hdf5", sep = ""))
+saveRDS(MLData$parameters,file = paste("../kmeans_classifiers_revision/",i,"_shockbox.model.PARAMETERS.rds", sep = ""))
+}
+```
+
+
+Afterwards, all files get clustered using the different cluster classifier.
+
+```{r, eval = FALSE}
+
+model_kmeans25 <- load_model_hdf5("../kmeans_classifiers_revision/kmeans.25_shockbox.model.hdf5")
+model_kmeans25_para <- readRDS("../kmeans_classifiers_revision/kmeans.25_shockbox.model.PARAMETERS.rds")
+
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 29.5*29.5, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- OFTAnalysis(Tracking, points = "bodycentre" ,movement_cutoff = 5, integration_period = 5)
+  
+  Tracking <- ClassifyBehaviors(Tracking, model_kmeans25, model_kmeans25_para)
+  Tracking$labels$kmeans.25 <- Tracking$labels$classifications
+
+  Tracking$labels$classifications <- NULL
+  Tracking$train_x <- NULL
+  return(Tracking)
+}
+
+
+#TFS session
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+
+#EX1
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+
+#EX2
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#EX3
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#EX4
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#EX5
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#EX6
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+```
+
+```{r, eval = FALSE}
+US <- LoadFromTrackingObject(ts)
+meta <- read.table("../metadata_revision/metadata_IFS1_fearCondBox.csv", sep = ",", header = T)
+rownames(meta) <- meta$filename
+meta$filename <- NULL
+
+US <- AddMetaData(US, meta)
+saveRDS(US,"../data_revision/US_IFS1_shockbox.rds")
+```
+
+

@@ -1,0 +1,144 @@
+---
+title: "CRS1_LDB_Clustering"
+author: "Lukas von Ziegler"
+date: '2024-01-26'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+set.seed(123)
+```
+
+
+
+# CRS1 LDB
+
+In this document we perform a clustering on LDB samples from the CRS1 experiment
+
+Again, first we define our pipeline
+
+```{r, eval = FALSE}
+zoneinfo <- read.table("../metadata_revision/LDB_zoneinfo.csv", sep = ";", header = T)
+
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 25)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95)
+  Tracking <- CalibrateTrackingData(Tracking, method = "area",in.metric = 30*(15.7+28), points = c("tl","tr","br","bl"))
+  Tracking <- AddZones(Tracking,zoneinfo)
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_LDB_v2(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit = names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- LDBAnalysis(Tracking,5 ,5, points = "bodycentre")
+  Tracking <- CreateTestSet(Tracking, integration_period = 15)
+  return(Tracking)
+}
+```
+
+
+```{r, eval = FALSE}
+# data
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+```
+
+we are now ready to run the unsupervised clustering. we use kmeans on the sequence data.
+
+```{r, eval = FALSE}
+centers <- c(25)
+
+for(i in centers){
+  ts <- UnsupervisedClusteringKmeans(ts, N_clusters = i,Z_score_Normalize = TRUE)
+  for(j in names(ts)){
+    ts[[j]]$labels[[paste("kmeans",i,sep = ".")]] <- ts[[j]]$labels$unsupervised
+    ts[[j]]$labels$unsupervised <- NULL
+  }
+}
+```
+
+
+save the data
+
+```{r, eval = FALSE}
+ts2 <- ts
+for(i in names(ts2)){
+  ts2[[i]]$train_x <- NULL
+}
+saveRDS(ts2,"../data/TS_CRS1_LDB.rds")
+```
+
+
+
+```{r, eval = FALSE}
+ts <- readRDS("../data/TS_CRS1_LDB.rds")
+for(i in names(ts[[1]]$labels)){
+  print(paste("creating training set for:",i, sep = " "))
+  for(j in names(ts)){
+    ts[[j]] <- CreateTrainingSet(ts[[j]], integration_period = 15, label.group = i)
+  }
+  
+  MLData <- CombineTrainingsData(ts,shuffle = TRUE)
+
+#initialize model
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 1024, activation = 'relu', input_shape = c(MLData$parameters$N_input),kernel_regularizer = regularizer_l2(l = 0)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = MLData$parameters$N_features, activation = 'softmax')
+
+#define optimizer
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+
+#train model
+history <- model %>% fit(
+  MLData$train_x, MLData$train_y, 
+  epochs = 30, batch_size = 512, 
+  validation_split = 0
+)
+
+save_model_hdf5(model,paste("../kmeans_classifiers_revision/",i,"_LDB.model.hdf5", sep = ""))
+saveRDS(MLData$parameters,file = paste("../kmeans_classifiers_revision/",i,"_LDB.model.PARAMETERS.rds", sep = ""))
+}
+```
+
+
+Next we use the function LoadFromTrackingObject to create a USData object. we add the metadata that contains the experimental details and save it as one object
+
+```{r, eval = FALSE}
+US <- LoadFromTrackingObject(ts)
+meta <- read.table("../metadata_revision/metadata_CRS1_LDB.csv", sep = ";", header = T)
+rownames(meta) <- meta$DLCFile
+meta$DLCFile <- NULL
+
+US <- AddMetaData(US, meta)
+US <- SmoothLabels_US(US, 5)
+US <- CalculateMetrics(US)
+US <- AddTransitionMatrixData(US)
+
+saveRDS(US,"../data_revision/US_CRS1_LDB.rds")
+```

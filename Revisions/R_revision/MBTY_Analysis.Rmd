@@ -1,0 +1,183 @@
+---
+title: "MBTY_Analysis"
+author: "Lukas von Ziegler"
+date: '2024-01-19'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+set.seed(123)
+```
+
+
+# Analysis of marble burrying yohimbine
+
+```{r}
+US <- readRDS("../data_revision/US_MBTY.rds")
+
+US <-TwoGroupAnalysis(US,group = US$meta$Group)
+```
+
+
+```{r, fig.height=1.9, fig.width=5.5}
+pdat <- US$Report$kmeansMBT.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US$meta$filename)
+pdat$Group <- US$meta$Group[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(10)
+
+pdat_temp <- pdat[pdat$Group == "Ctrl", ]
+df$SEM[df$Group=="Ctrl"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(9)
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#6CB6E0")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+US$Results[[1]]$Statistics$kmeansMBT.25
+
+cluster_stats <- US$Results[[1]]$Statistics$kmeansMBT.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US, grouping = US$meta$Group == "YOH", lab = "kmeansMBT.25")
+
+trans_stats <- US$Results[[1]]$TransitionStats$kmeansMBT.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+```
+
+```{r, fig.height=2, fig.width=6}
+PlotTransitionsStats(US)
+
+US$Results$`Ctrl-vs-YOH`$Statistics
+```
+
+```{r, fig.height=3.2, fig.width=4.5}
+US <- CalculateStabilizedTransitions(US, group = "Group",control = "Ctrl",labels = "kmeansMBT.25")
+p <- Plot2DEmbedding(US,transitionmatrices_stabilized = "kmeansMBT.25",colorby = "Group", colors =  c("grey", "#6CB6E0"), plot.sem = TRUE, method = "umap", seed = 123)
+p
+```
+
+```{r, eval = FALSE}
+clusters <- GetUniqueClusterValues(US)[[1]]
+
+#offset determined by 300/fps
+offset = (10)
+
+RenderClusterVideos(US, labels = "kmeansMBT.25", cluster.values= clusters , "../NEW_DATA/MBTY/", video.format = ".mp4", n = 5, random = TRUE, output.folder = "Examples_BTMY", exp.name = "BTMY", fps = 30, min.length.s = 0, lag.s = 0, offset.s = offset)
+```
+
+## Bin anaylsis marble burying yohimbine (6 min bins)
+
+```{r, fig.height=4, fig.width=5, warning=FALSE}
+
+US_Bin <- CreateBinnedData(US, binlength = 30 * 60 * 6, max_n_bin = 5)
+
+US_Bin <- CalculateMetrics(US_Bin)
+
+US_Bin <- AddTransitionMatrixData(US_Bin)
+
+US_Bin$meta$Group_bin <- paste(US_Bin$meta$Group, US_Bin$meta$bin)
+
+Plot2DEmbedding(US_Bin, transitionmatrices = "kmeansMBT.25", colorby = "Group_bin", colors = c("#B2BCEC","#7886CB","#4E60B7","#283A94","#071B7B","#E89698","#C36163","#9E3436","#831517","#6D0002"), plot.sem = T)
+```
+
+## Bin anaylsis of digging behavior
+
+```{r, fig.height=3, fig.width=5, warning=FALSE}
+US_Bin <- CreateBinnedData(US, binlength = 30 * 60 * 6, max_n_bin = 5)
+
+US_Bin <- CalculateMetrics(US_Bin)
+
+dig <- US_Bin$Report$kmeansMBT.25
+dig <- imputeTS::na_replace(dig)
+dig <- cbind(dig,US_Bin$meta[,c("Group","bin","bin_int")])
+
+ggplot(dig, aes(bin, X3.nframes / 30, color = Group)) + geom_boxplot(outlier.shape = NA) + geom_point(position = position_jitterdodge(jitter.width = 0.1)) + theme_bw() + ggtitle("Digging cluster in 6 min bins") + ylab("time spent digging / s") + scale_color_manual(values = c("black","red"))
+```
+
+## Bin anaylsis of digging behavior (ribbon plot with 1 min resolution)
+
+```{r, fig.height=4, fig.width=6, warning=FALSE}
+US_Bin <- CreateBinnedData(US, binlength = 30 * 60 * 1, max_n_bin = 30)
+
+US_Bin <- CalculateMetrics(US_Bin)
+
+dig <- US_Bin$Report$kmeansMBT.25
+dig <- dig / 30
+dig <- imputeTS::na_replace(dig)
+dig <- cbind(dig,US_Bin$meta[,c("Group","bin","bin_int")])
+dig$Group_bin <- paste(dig$Group, dig$bin)
+
+dig <- data.table(dig)
+
+
+# Aggregating data
+aggregated_data <- dig[, .(mean_dig = mean(X3.nframes), sem_dig = std_err(X3.nframes), bin_int = unique(bin_int), Group = unique(Group)), by = .(Group_bin)]
+
+ggplot(aggregated_data, aes(bin_int, mean_dig, color = Group)) + geom_path(size = 1) + geom_ribbon(aes(ymin = mean_dig-sem_dig, ymax = mean_dig + sem_dig, fill = Group), alpha = 0.3) + theme_bw() + theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=0.5)) + scale_color_manual(values = c("black","red")) + scale_fill_manual(values = c("black","red")) + ylab("time spent digging / s") + xlab("minute bin") + scale_x_continuous(breaks = c(1:30)) + ggtitle("Digging behavior in 1 minute bins")
+```
+
+## Two group comparisons with effect size at different time points
+
+```{r, fig.width= 6, fig.height=8, warning=FALSE}
+nbins <- 5
+
+US_Bin <- CreateBinnedData(US, binlength = 30 * 60 * 30 / nbins , max_n_bin = nbins)
+
+US_Bin <- CalculateMetrics(US_Bin)
+
+US_Bin <- AddTransitionMatrixData(US_Bin)
+
+US_Bin$meta$Group_bin <- paste(US_Bin$meta$Group, US_Bin$meta$bin)
+
+for(i in 1:nbins){
+  US_stat <- SplitUSData(US_Bin,select = US_Bin$meta$bin_int == i)
+  US_stat <- TwoGroupAnalysis(US_stat, group = US_stat$meta$Group_bin)
+  US_Bin$Results <- append(US_Bin$Results, US_stat$Results)
+}
+
+PlotTransitionsStats(US_Bin)
+```

@@ -1,0 +1,817 @@
+---
+title: "SupplFig_OtherTests"
+author: "Fabienne Roessler"
+date: '2024-03-17'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(pwr)
+set.seed(123)
+```
+
+# Suppl. Figure for different experimental setups
+
+## LDB
+
+Load data:
+
+```{r, fig.width=5, fig.height=2}
+US_LDB <- readRDS("../data_revision/US_CRS1_LDB_diffClustering.rds")
+US_temp <- readRDS("../data_revision/US_CRS1_LDB.rds")
+US_LDB$Report$raw <- US_temp$Report$raw
+
+US_LDB <- SplitUSData(US_LDB, select = US_LDB$meta$group != "Acute")
+
+US_LDB <- TwoGroupAnalysis(US_LDB, US_LDB$meta$group, lab = "kmeans.25")
+```
+
+Power Analysis Curves:
+
+```{r,fig.width= 4.3, fig.height=1.8}
+include <- US_LDB$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_LDB, US_LDB$meta$group, lab = k)
+  A <- USt$meta$ratio[USt$meta$group == "Repeated"]
+  B <- USt$meta$ratio[USt$meta$group == "Control"]
+  CD <- rbind(CD, data.frame(test = "Repeated-vs-Control",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre..transitions.total","bodycentre.light.total.time")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_LDB$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Repeated-vs-Control",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:60
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.light.total.time_Usage", "bodycentre..transitions.total_Usage", "kmeansLDB.10_BFL", "kmeans.25_BFL", "kmeansLDB.50_BFL", "kmeansLDB.70_BFL", "kmeansLDB.100_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_CRS_LDB_diffClusteringNumbers.pdf", height = 1.8, width = 4.3)
+print(p)
+dev.off()
+```
+
+Barplot:
+
+```{r, fig.height=1.8, fig.width=7.4}
+pdat <- US_LDB$Report$kmeansLDB.50
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US_LDB$meta$filename)
+pdat$Group <- US_LDB$meta$group[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 50, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(16)
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#808000")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:50)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+
+pdf("../Plots_NEWANALYSES/SupplFig7_barplot_CRS_LDB.pdf", height = 1.8, width = 7.4)
+print(p1)
+dev.off()
+
+cluster_stats <- US_LDB$Results[[1]]$Statistics$kmeansLDB.50
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+BFA:
+
+```{r, fig.width=5.5, fig.height=2}
+US_LDB <- TwoGroupAnalysis(US_LDB, US_LDB$meta$group, lab = "kmeansLDB.50")
+PlotTransitionsStats(US_LDB, labels = "kmeansLDB.50")
+
+pdf("../Plots_NEWANALYSES/SupplFig7_BFA_CRS_LDB.pdf", height = 2, width = 5.5)
+PlotTransitionsStats(US_LDB, labels = "kmeansLDB.50")
+dev.off()
+```
+
+
+```{r, fig.height=2.5, fig.width=5.2}
+US_LDB <- CalculateStabilizedTransitions(US_LDB, group = "group",control = "Control",labels = "kmeansLDB.50")
+p <- Plot2DEmbedding(US_LDB,transitionmatrices_stabilized = "kmeansLDB.50",colorby = "group", colors =  c("grey", "#808000"), plot.sem = TRUE, method = "umap", seed = 123)
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_2Dembedding_CRS_LDB.pdf", height = 2.5, width = 5.2)
+print(p)
+dev.off()
+```
+
+## IFS shockbox
+
+Load data:
+
+```{r}
+US <- readRDS("../data_revision/US_IFS1_shockbox_diffClustering.rds")
+
+US_TFS <- SplitUSData(US, select = US$meta$session == "TFS")
+
+US_TFS <-TwoGroupAnalysis(US_TFS,group = US_TFS$meta$group)
+```
+
+Power Analysis Curves:
+
+```{r,fig.width= 3.5, fig.height=1.8}
+include <- US_TFS$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_TFS, US_TFS$meta$group, lab = k)
+  A <- USt$meta$ratio[USt$meta$group == "IFS"]
+  B <- USt$meta$ratio[USt$meta$group == "Ctrl"]
+  CD <- rbind(CD, data.frame(test = "IFS-vs-Ctrl",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+Results <- CD
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:6
+sig <- 0.05
+
+select <- c("kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.70_BFL", "kmeans.100_BFL")
+#select <- c("kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.99, 1.0) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_IFS_shockbox_diffClusteringNumbers.pdf", height = 1.8, width = 3.5)
+print(p)
+dev.off()
+```
+
+Barplot:
+
+```{r, fig.height=1.9, fig.width=6}
+pdat <- US_TFS$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, rownames(US_TFS$meta))
+pdat$Group <- US_TFS$meta$group[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(20)
+
+pdat_temp <- pdat[pdat$Group == "Ctrl", ]
+df$SEM[df$Group=="Ctrl"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(15)
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#E55D19")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../Plots_NEWANALYSES/SupplFig7_barplot_IFS_shockbox.pdf", height = 1.9, width = 6)
+print(p1)
+dev.off()
+
+cluster_stats <- US_TFS$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+BFA:
+
+```{r, fig.width=3, fig.height=1.9}
+#US_LDB <- TwoGroupAnalysis(US_LDB, US_LDB$meta$group, lab = "kmeansLDB.50")
+
+PlotTransitionsStats(US_TFS, labels = "kmeans.25")
+
+pdf("../Plots_NEWANALYSES/SupplFig7_BFA_IFS_shockbox.pdf", height = 1.9, width = 3)
+PlotTransitionsStats(US_TFS, labels = "kmeans.25")
+dev.off()
+```
+
+2D embedding:
+
+```{r, fig.height=3.2, fig.width=4.5}
+US_TFS <- CalculateStabilizedTransitions(US_TFS, group = "group",control = "Ctrl",labels = "kmeans.25")
+p <- Plot2DEmbedding(US_TFS,transitionmatrices_stabilized = "kmeans.25",colorby = "group", colors =  c("grey", "#E55D19"), plot.sem = TRUE, method = "umap", seed = 123)
+p
+
+#pdf("../Plots_NEWANALYSES/Figure6_2Dembedding_IFS_resilienceGroups.pdf", height = 3.2, width = 4.5)
+#print(p)
+#dev.off()
+```
+
+2D embedding with binned data:
+
+```{r, fig.width= 4.7, fig.height=4}
+US_TFS <- CreateBinnedData(US_TFS, binlength = 25 * 60 * 5, max_n_bin = 5)
+
+US_TFS <- CalculateMetrics(US_TFS)
+US_TFS <- AddTransitionMatrixData(US_TFS)
+
+US_TFS$meta$Group_bin <- paste(US_TFS$meta$group, US_TFS$meta$bin)
+
+Plot2DEmbedding(US_TFS, transitionmatrices = "kmeans.25", colorby = "Group_bin", colors = c("#D1D1D1","#AEAEAE","#747474","#3A3A3A","#171717","#F4BB9E","#ED8A59","#E55D19","#C55015","#943C10"), plot.sem = T)
+
+pdf("../Plots_NEWANALYSES/SupplFig7_2Dembedding_IFS_shockbox_binned.pdf", height = 4, width = 4.8)
+Plot2DEmbedding(US_TFS, transitionmatrices = "kmeans.25", colorby = "Group_bin", colors = c("#D1D1D1","#AEAEAE","#747474","#3A3A3A","#171717","#F4BB9E","#ED8A59","#E55D19","#C55015","#943C10"), plot.sem = T)
+dev.off()
+```
+
+## Roche data
+
+Load data:
+
+```{r, eval = FALSE}
+US_R <- readRDS("../data_revision/US_YohDiazRoche_diffClustering.rds")
+US_R_Yoh <- SplitUSData(US_R, select = US_R$meta$Experiment == "Yohimbine")
+
+US_R_Yoh_1 <- SplitUSData(US_R_Yoh, select = US_R_Yoh$meta$Dosage %in% c(0,1))
+US_R_Yoh_1 <- TwoGroupAnalysis(US_R_Yoh_1, US_R_Yoh_1$meta$Group, lab = "kmeans.25.Roche")
+
+US_R_Yoh_3 <- SplitUSData(US_R_Yoh, select = US_R_Yoh$meta$Dosage %in% c(0,3))
+US_R_Yoh_3 <- TwoGroupAnalysis(US_R_Yoh_3, US_R_Yoh_3$meta$Group, lab = "kmeans.25.Roche")
+
+US_R_Yoh_6 <- SplitUSData(US_R_Yoh, select = US_R_Yoh$meta$Dosage %in% c(0,6))
+US_R_Yoh_6 <- TwoGroupAnalysis(US_R_Yoh_6, US_R_Yoh_6$meta$Group, lab = "kmeans.25.Roche")
+
+
+US_R_Diaz <- SplitUSData(US_R, select = US_R$meta$Experiment == "Diazepam")
+US_R_Diaz <- TwoGroupAnalysis(US_R_Diaz, US_R_Diaz$meta$Group, lab = "kmeans.25.Roche")
+
+US_R_Diaz_1 <- SplitUSData(US_R_Diaz, select = US_R_Diaz$meta$Dosage %in% c(0, 1))
+US_R_Diaz_1 <- TwoGroupAnalysis(US_R_Diaz_1, US_R_Diaz_1$meta$Group, lab = "kmeans.25.Roche")
+
+US_R_Diaz_2 <- SplitUSData(US_R_Diaz, select = US_R_Diaz$meta$Dosage %in% c(0, 2))
+US_R_Diaz_2 <- TwoGroupAnalysis(US_R_Diaz_2, US_R_Diaz_2$meta$Group, lab = "kmeans.25.Roche")
+
+US_R_Diaz_3 <- SplitUSData(US_R_Diaz, select = US_R_Diaz$meta$Dosage %in% c(0, 3))
+US_R_Diaz_3 <- TwoGroupAnalysis(US_R_Diaz_3, US_R_Diaz_3$meta$Group, lab = "kmeans.25.Roche")
+```
+
+### Power analysis curves
+
+For yohimbine 1:
+
+```{r,fig.width= 4.3, fig.height=2}
+include <- US_R_Yoh_1$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_R_Yoh_1, US_R_Yoh_1$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "Yoh"]
+  B <- USt$meta$ratio[USt$meta$Group == "Veh"]
+  CD <- rbind(CD, data.frame(test = "Yoh-vs-Veh",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_R_Yoh_1$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Yoh-vs-Veh",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.10.Roche_BFL", "kmeans.25.Roche_BFL", "kmeans.50.Roche_BFL", "kmeans.70.Roche_BFL", "kmeans.100.Roche_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) + scale_x_continuous(breaks = c(5, 7, 9, 11)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_Roche_Yoh1_diffClusteringNumbers.pdf", height = 2, width = 4.3)
+print(p)
+dev.off()
+```
+
+For yohimbine 3:
+
+```{r,fig.width= 4.3, fig.height=2}
+include <- US_R_Yoh_3$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_R_Yoh_3, US_R_Yoh_3$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "Yoh"]
+  B <- USt$meta$ratio[USt$meta$Group == "Veh"]
+  CD <- rbind(CD, data.frame(test = "Yoh-vs-Veh",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_R_Yoh_3$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Yoh-vs-Veh",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.10.Roche_BFL", "kmeans.25.Roche_BFL", "kmeans.50.Roche_BFL", "kmeans.70.Roche_BFL", "kmeans.100.Roche_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) + scale_x_continuous(breaks = c(5, 7, 9, 11)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_Roche_Yoh3_diffClusteringNumbers.pdf", height = 2, width = 4.3)
+print(p)
+dev.off()
+```
+
+For yohimbine 6:
+
+```{r,fig.width= 4.3, fig.height=2}
+include <- US_R_Yoh_6$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_R_Yoh_6, US_R_Yoh_6$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "Yoh"]
+  B <- USt$meta$ratio[USt$meta$Group == "Veh"]
+  CD <- rbind(CD, data.frame(test = "Yoh-vs-Veh",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_R_Yoh_6$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Yoh-vs-Veh",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.10.Roche_BFL", "kmeans.25.Roche_BFL", "kmeans.50.Roche_BFL", "kmeans.70.Roche_BFL", "kmeans.100.Roche_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) + scale_x_continuous(breaks = c(5, 7, 9, 11)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_Roche_Yoh6_diffClusteringNumbers.pdf", height = 2, width = 4.3)
+print(p)
+dev.off()
+```
+
+For diazepam 1:
+
+```{r,fig.width= 4.3, fig.height=2}
+include <- US_R_Diaz_1$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_R_Diaz_1, US_R_Diaz_1$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "Diaz"]
+  B <- USt$meta$ratio[USt$meta$Group == "Veh"]
+  CD <- rbind(CD, data.frame(test = "Diaz-vs-Veh",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_R_Diaz_1$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Diaz-vs-Veh",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.10.Roche_BFL", "kmeans.25.Roche_BFL", "kmeans.50.Roche_BFL", "kmeans.70.Roche_BFL", "kmeans.100.Roche_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) + scale_x_continuous(breaks = c(5, 7, 9, 11)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_Roche_Diaz1_diffClusteringNumbers.pdf", height = 2, width = 4.3)
+print(p)
+dev.off()
+```
+
+For diazepam 2:
+
+```{r,fig.width= 4.3, fig.height=2}
+include <- US_R_Diaz_2$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_R_Diaz_2, US_R_Diaz_2$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "Diaz"]
+  B <- USt$meta$ratio[USt$meta$Group == "Veh"]
+  CD <- rbind(CD, data.frame(test = "Diaz-vs-Veh",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_R_Diaz_2$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Diaz-vs-Veh",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.10.Roche_BFL", "kmeans.25.Roche_BFL", "kmeans.50.Roche_BFL", "kmeans.70.Roche_BFL", "kmeans.100.Roche_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) + scale_x_continuous(breaks = c(5, 7, 9, 11)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_Roche_Diaz2_diffClusteringNumbers.pdf", height = 2, width = 4.3)
+print(p)
+dev.off()
+```
+
+For diazepam 3:
+
+```{r,fig.width= 4.3, fig.height=2}
+include <- US_R_Diaz_3$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US_R_Diaz_3, US_R_Diaz_3$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "Diaz"]
+  B <- USt$meta$ratio[USt$meta$Group == "Veh"]
+  CD <- rbind(CD, data.frame(test = "Diaz-vs-Veh",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US_R_Diaz_3$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Diaz-vs-Veh",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.10.Roche_BFL", "kmeans.25.Roche_BFL", "kmeans.50.Roche_BFL", "kmeans.70.Roche_BFL", "kmeans.100.Roche_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) + scale_x_continuous(breaks = c(5, 7, 9, 11)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) #, legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_PowerPlots_Roche_Diaz3_diffClusteringNumbers.pdf", height = 2, width = 4.3)
+print(p)
+dev.off()
+```
+
+Dosage dependent effects for diazepam:
+
+```{r, fig.width= 2.5, fig.height=1.7}
+US_R_Diaz$meta$Group2 <- paste(US_R_Diaz$meta$Group, US_R_Diaz$meta$Dosage, sep = "_")
+US_R_Diaz$Report$raw$Group <- US_R_Diaz$meta$Group
+US_R_Diaz$Report$raw$Group2 <- US_R_Diaz$meta$Group2
+US_R_Diaz$Report$raw$Experiment <- US_R_Diaz$meta$Experiment 
+
+US_R_Diaz$Report$raw$Group2 <- factor(US_R_Diaz$Report$raw$Group2, levels = c("Veh_0", "Diaz_1","Diaz_2","Diaz_3"))
+
+
+p <- ggplot(US_R_Diaz$Report$raw, aes(Group2, log10(bodycentre.distance.moving), color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(3.5, 4.6) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#B3E8B0","#008000","#003300")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Diaz_distanceMoving.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+
+p <- ggplot(US_R_Diaz$Report$raw, aes(Group2, bodycentre.center.total.time, color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(0, 350) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#B3E8B0","#008000","#003300")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Diaz_timeInCenter.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+
+p <- ggplot(US_R_Diaz$Report$raw, aes(Group2, behavior.SupportedRearing.count, color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(0, 275) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#B3E8B0","#008000","#003300")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Diaz_supportedRears.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+
+p <- ggplot(US_R_Diaz$Report$raw, aes(Group2, behavior.UnsupportedRearing.count, color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(0, 175) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#B3E8B0","#008000","#003300")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Diaz_unsupportedRears.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+```
+
+ANOVA for dosage dependent effects for diazepam:
+
+```{r}
+dat <- US_R_Diaz$Report$raw
+keep <- c("behavior.SupportedRearing.count","behavior.UnsupportedRearing.count","bodycentre.center.total.time","bodycentre.distance.moving")
+dat <- dat[,keep]
+dat$bodycentre.distance.moving.log <- log10(dat$bodycentre.distance.moving)
+test <- names(dat)
+dat$group <- US_R_Diaz$meta$Group2
+dat$group <- factor(dat$group, levels = c("Veh_0","Diaz_1","Diaz_2","Diaz_3"))
+
+ps <- data.frame()
+for(t in test){
+  print(paste("Diazepam Classical Readout TESTING:", t ,sep = " "))
+  test_dat <- data.frame(response = dat[,t], group = dat$group)
+  mod <- lm(response~group,data = test_dat)
+  print(summary(mod))
+  ps <- rbind(ps, data.frame(test = t, p.value = summary(aov(mod))[[1]][5][[1]][1]))
+}
+
+#which survive multiple testing corrections?
+ps$adj.p.value <- p.adjust(ps$p.value, method = "BH")
+print(ps[order(ps$adj.p.value),])
+```
+
+Dosage dependent effects for yohimbine:
+
+```{r, fig.width= 2.5, fig.height=1.7}
+US_R_Yoh$meta$Group2 <- paste(US_R_Yoh$meta$Group, US_R_Yoh$meta$Dosage, sep = "_")
+US_R_Yoh$Report$raw$Group <- US_R_Yoh$meta$Group
+US_R_Yoh$Report$raw$Group2 <- US_R_Yoh$meta$Group2
+US_R_Yoh$Report$raw$Experiment <- US_R_Yoh$meta$Experiment 
+
+US_R_Yoh$Report$raw$Group2 <- factor(US_R_Yoh$Report$raw$Group2, levels = c("Veh_0", "Yoh_1","Yoh_3","Yoh_6"))
+
+
+p <- ggplot(US_R_Yoh$Report$raw, aes(Group2, log10(bodycentre.distance.moving), color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(3.5, 4.6) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#F2DAF2","#A923A3","#660066")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Yoh_distanceMoving.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+
+p <- ggplot(US_R_Yoh$Report$raw, aes(Group2, bodycentre.center.total.time, color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(0, 350) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#F2DAF2","#A923A3","#660066")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Yoh_timeInCenter.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+
+p <- ggplot(US_R_Yoh$Report$raw, aes(Group2, behavior.SupportedRearing.count, color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(0, 275) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#F2DAF2","#A923A3","#660066")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Yoh_supportedRears.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+
+p <- ggplot(US_R_Yoh$Report$raw, aes(Group2, behavior.UnsupportedRearing.count, color = Group2)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + ylim(0, 175) +
+  theme_bw() + 
+  scale_color_manual(values = c("black","#F2DAF2","#A923A3","#660066")) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Yoh_unsupportedRears.pdf", height = 1.7, width = 2.5)
+print(p)
+dev.off()
+```
+
+ANOVA for dosage dependent effects for yohimbine:
+
+```{r}
+dat <- US_R_Yoh$Report$raw
+keep <- c("behavior.SupportedRearing.count","behavior.UnsupportedRearing.count","bodycentre.center.total.time","bodycentre.distance.moving")
+dat <- dat[,keep]
+dat$bodycentre.distance.moving.log <- log10(dat$bodycentre.distance.moving)
+test <- names(dat)
+dat$group <- US_R_Yoh$meta$Group2
+dat$group <- factor(dat$group, levels = c("Veh_0","Yoh_1","Yoh_3","Yoh_6"))
+
+ps <- data.frame()
+for(t in test){
+  print(paste("Yohimbine Classical Readout TESTING:", t ,sep = " "))
+  test_dat <- data.frame(response = dat[,t], group = dat$group)
+  mod <- lm(response~group,data = test_dat)
+  print(summary(mod))
+  ps <- rbind(ps, data.frame(test = t, p.value = summary(aov(mod))[[1]][5][[1]][1]))
+}
+
+#which survive multiple testing corrections?
+ps$adj.p.value <- p.adjust(ps$p.value, method = "BH")
+print(ps[order(ps$adj.p.value),])
+```
+
+
+Results from BFA for diazepam: 
+
+```{r, fig.height= 4, fig.width=2.1}
+US_R_Diaz <- MultipleTwoGroupAnalysis(US_R_Diaz, US_R_Diaz$meta$Dosage, lab = "kmeans.25.Roche")
+
+PlotTransitionsStats(US_R_Diaz, analysis = c("1-vs-2", "1-vs-3", "2-vs-3") , labels = "kmeans.25.Roche")
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Diaz_kmeans25_BFA.pdf", height = 4, width = 2.1)
+PlotTransitionsStats(US_R_Diaz, analysis = c("1-vs-2", "1-vs-3", "2-vs-3") , labels = "kmeans.25.Roche")
+dev.off()
+```
+
+Results from BFA for yohimbine: 
+
+```{r, fig.height= 4, fig.width=2.1}
+US_R_Yoh <- MultipleTwoGroupAnalysis(US_R_Yoh, US_R_Yoh$meta$Dosage, lab = "kmeans.25.Roche")
+
+PlotTransitionsStats(US_R_Yoh, analysis = c("1-vs-3", "1-vs-6", "3-vs-6") , labels = "kmeans.25.Roche")
+
+pdf("../Plots_NEWANALYSES/SupplFig7_Roche_Yohimbine_kmeans25_BFA.pdf", height = 4, width = 2.1)
+PlotTransitionsStats(US_R_Yoh, analysis = c("1-vs-3", "1-vs-6", "3-vs-6") , labels = "kmeans.25.Roche")
+dev.off()
+```

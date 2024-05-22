@@ -1,0 +1,483 @@
+---
+title: "Figure2_largeScaleClustering"
+author: "Fabienne Rössler"
+date: '2023-03-21'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(pwr)
+set.seed(123)
+```
+
+# Figure 2
+
+```{r}
+US <- readRDS("../data/US_AllData_raw.rds")
+```
+
+```{r}
+US1 <- SplitUSData(US, select = US$meta$Session %in% c("PostCSI"))
+US1 <- TwoGroupAnalysis(US1,group = US1$meta$Condition, lab = "kmeans.25")
+
+US2 <- SplitUSData(US, select = US$meta$Session %in% c("FST45min"))
+US2 <- TwoGroupAnalysis(US2,group = US2$meta$Treatment, lab = "kmeans.25")
+
+US2_24h <- SplitUSData(US, select = US$meta$Session %in% c("FST24h"))
+US2_24h <- TwoGroupAnalysis(US2_24h,group = US2_24h$meta$Treatment, lab = "kmeans.25")
+
+US3 <- SplitUSData(US, select = US$meta$Session == "PostYoh" & US$meta$Condition == "Control")
+US3 <- TwoGroupAnalysis(US3,group = US3$meta$Treatment, lab = "kmeans.25")
+```
+
+
+## Barplots showing cluster occurence for CSI, AS and Yohimbine
+
+### CSI
+
+```{r, fig.height=2, fig.width=5.4}
+pdat <- US1$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US1$meta$filename)
+pdat$Group <- US1$meta$Condition[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(30)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#0072B2")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/Figure2_barplot_CSI.pdf", height = 2, width = 5.4)
+print(p1)
+dev.off()
+
+US1$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US1$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+### AS 45 min
+
+```{r, fig.height=2, fig.width=5.4}
+pdat <- US2$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US2$meta$filename)
+pdat$Group <- US2$meta$Treatment[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(15)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#D52800")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/Figure2_barplot_FST45min.pdf", height = 2, width = 5.4)
+print(p1)
+dev.off()
+
+US2$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US2$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+### Yohimbine
+
+```{r, fig.height=2, fig.width=5.4}
+pdat <- US3$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US3$meta$filename)
+pdat$Group <- US3$meta$Treatment[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(15)
+
+pdat_temp <- pdat[pdat$Group == "Saline", ]
+df$SEM[df$Group=="Saline"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(5)
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#CC79A7")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/Figure2_barplot_yohimbine.pdf", height = 2, width = 5.4)
+print(p1)
+dev.off()
+
+US3$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US3$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+## Behavior flow differences for CSI, AS and Yohimbine
+
+### CSI
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US1, grouping = US1$meta$Condition == "CSI", lab = "kmeans.25")
+
+US1$Results[[1]]$TransitionStats$kmeans.25
+
+trans_stats <- US1$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+
+pdf("../../Plots/Figure2_CSI_behaviorFlowDelta.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US1, grouping = US1$meta$Condition == "CSI", lab = "kmeans.25")
+dev.off()
+```
+
+### AS 45 min
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US2, grouping = US2$meta$Treatment == "Swim", lab = "kmeans.25")
+
+US2$Results$`Swim-vs-Control`$TransitionStats$kmeans.25
+
+trans_stats <- US2$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+
+pdf("../../Plots/Figure2_AS45min_behaviorFlowDelta.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US2, grouping = US2$meta$Treatment == "Swim", lab = "kmeans.25")
+dev.off()
+```
+
+### Yohimbine
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US3, grouping = US3$meta$Treatment == "Yohimbin", lab = "kmeans.25")
+
+US3$Results[[1]]$TransitionStats$kmeans.25
+
+trans_stats <- US3$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+
+pdf("../../Plots/Figure2_Yohimbine_behaviorFlowDelta.pdf", height = 5, width = 5)
+PlotBehaviorFlow_Delta(US3, grouping = US3$meta$Treatment == "Yohimbin", lab = "kmeans.25")
+dev.off()
+```
+
+## BFA for CSI, AS and Yohimbine
+
+### CSI
+
+```{r, fig.width=5, fig.height=2.5}
+PlotTransitionsStats(US1, labels = "kmeans.25")
+
+pdf("../../Plots/Figure2_bootstrapping_CSI.pdf", height = 2.5, width = 5)
+PlotTransitionsStats(US1, labels = "kmeans.25")
+dev.off()
+```
+
+### AS 45 min
+
+```{r, fig.width=5, fig.height=1.5}
+PlotTransitionsStats(US2, labels = "kmeans.25")
+
+pdf("../Plots_NEWANALYSES/Figure2_bootstrapping_AS45min.pdf", height = 2.5, width = 5)
+PlotTransitionsStats(US2, labels = "kmeans.25")
+dev.off()
+```
+
+## AS 24 hours
+
+```{r, fig.width= 5, fig.height=1.5}
+PlotTransitionsStats(US2_24h, labels = "kmeans.25")
+
+pdf("../../Plots/Figure2_bootstrapping_AS24h.pdf", height = 1.5, width = 5)
+PlotTransitionsStats(US2_24h, labels = "kmeans.25")
+dev.off()
+```
+
+### Yohimbine
+
+```{r, fig.width= 5, fig.height=2.5}
+PlotTransitionsStats(US3, labels = "kmeans.25")
+
+pdf("../../Plots/Figure2_bootstrapping_yohimbine.pdf", height = 2.5, width = 5)
+PlotTransitionsStats(US3, labels = "kmeans.25")
+dev.off()
+```
+
+
+## Power analysis curves for CSI, AS and Yohimbine
+
+###CSI
+
+```{r, fig.width= 3, fig.height=2}
+include <- "kmeans.25"
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US1, US1$meta$Condition, lab = k)
+  A <- USt$meta$ratio[USt$meta$Condition == "CSI"]
+  B <- USt$meta$ratio[USt$meta$Condition == "Control"]
+  CD <- rbind(CD, data.frame(test = "CSI-vs-Control",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US1$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "CSI-vs-Control",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+#Results <- CohensD_weighted(US1)
+Results_trans <- data.frame(test = "CSI-vs-Control",label = "best_trans", category = "Transitions", weighted_cohenD = US1$Results[[1]]$TransitionStats$kmeans.25$transitions[1, ]$CohensD)
+Results <- rbind(Results, Results_trans, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:50
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "best_trans_Transitions", "kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#880B08","#994F88")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/Figure2_PowerPlots_CSI.pdf", height = 2.5, width = 2.3)
+print(p)
+dev.off()
+```
+
+### AS 45 min
+
+```{r, fig.width=3, fig.height=1.5}
+include <- "kmeans.25"
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US2, US2$meta$Treatment, lab = k)
+  A <- USt$meta$ratio[USt$meta$Treatment == "Swim"]
+  B <- USt$meta$ratio[USt$meta$Treatment == "Control"]
+  CD <- rbind(CD, data.frame(test = "Swim-vs-Control",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US2$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Swim-vs-Control",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+#Results <- CohensD_weighted(US1)
+Results_trans <- data.frame(test = "Swim-vs-Control",label = "best_trans", category = "Transitions", weighted_cohenD = US2$Results[[1]]$TransitionStats$kmeans.25$transitions[1, ]$CohensD)
+Results <- rbind(Results, Results_trans, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:50
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "best_trans_Transitions", "kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#880B08","#994F88")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/Figure2_PowerPlots_AS45min.pdf", height = 2.5, width = 2.3)
+print(p)
+dev.off()
+```
+
+### AS 24 hours
+
+```{r, fig.width=3, fig.height=1.5}
+include <- US2_24h$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US2_24h, US2_24h$meta$Treatment, lab = k)
+  A <- USt$meta$ratio[USt$meta$Treatment == "Swim"]
+  B <- USt$meta$ratio[USt$meta$Treatment == "Control"]
+  CD <- rbind(CD, data.frame(test = "Swim-vs-Control",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+Results <- CohensD_weighted(US2_24h)
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:50
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("raw_Usage", "kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("grey","#994F88")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+p
+
+pdf("../Plots_NEWANALYSES/Figure2_PowerPlots_AS24h.pdf", height = 1.5, width = 3.5)
+print(p)
+dev.off()
+```
+
+### Yohimbine
+
+```{r, fig.width=3, fig.height=2}
+include <- "kmeans.25"
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US3, US3$meta$Treatment, lab = k)
+  A <- USt$meta$ratio[USt$meta$Treatment == "Yohimbin"]
+  B <- USt$meta$ratio[USt$meta$Treatment == "Saline"]
+  CD <- rbind(CD, data.frame(test = "Saline-vs-Yohimbin",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US3$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Yohimbin-vs-Saline",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+#Results <- CohensD_weighted(US1)
+Results_trans <- data.frame(test = "Yohimbin-vs-Saline",label = "best_trans", category = "Transitions", weighted_cohenD = US3$Results[[1]]$TransitionStats$kmeans.25$transitions[1, ]$CohensD)
+Results <- rbind(Results, Results_trans, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:12
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "best_trans_Transitions", "kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#880B08","#994F88")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.05, 1) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/Figure2_PowerPlots_Yohimbin.pdf", height = 1.8, width = 2.3)
+print(p)
+dev.off()
+```

@@ -1,0 +1,417 @@
+---
+title: "Figure4_TransferClustering"
+author: "Fabienne Rössler"
+date: '2023-03-24'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(tidygraph)
+library(igraph)
+library(network)
+library(visNetwork)
+set.seed(123)
+```
+
+# Figure 4
+
+```{r}
+US <- readRDS("../data/US_AllData_25Clusters.rds")
+```
+
+```{r}
+US_temp <- readRDS("../data/USData_transfer.rds")
+US$Report$raw <- US_temp$Report$raw
+
+US2 <- SplitUSData(US,select = US$meta$Experiment %in% c("CRS"))
+US2 <- TwoGroupAnalysis(US2,group = US2$meta$Condition, lab = "kmeans.25")
+
+US3 <- SplitUSData(US,select = US$meta$Experiment %in% c("DREADD"))
+US3 <- TwoGroupAnalysis(US3,group = US3$meta$Treatment, lab = "kmeans.25")
+
+US_comb <- SplitUSData(US,select = US$meta$Experiment %in% c("CRS", "DREADD"))
+
+US_all <- SplitUSData(US, select = US$meta$Session %in% c("CRS1","PostCSI","FST45min","PostYoh","DREADD"))
+US_all <- SplitUSData(US_all, omit = names(US_all$files)[US_all$meta$Condition == "Tunnel"] )
+```
+
+## Average behavior flow for controls from original data (CSI, FST and Yohimbine)
+
+```{r, fig.width=5, fig.height=5}
+A <- US$meta$Session == "PostCSI" & US$meta$Condition == "Control"
+B <- US$meta$Session == "PostYoh" & US$meta$Condition == "Control" & US$meta$Treatment == "Saline"
+C <- US$meta$Session == "FST45min" & US$meta$Treatment == "Control"
+
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[A|B|C])
+
+pdf("../../Plots/Figure4_behaviorFlow_original.pdf", height = 5, width = 5)
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[A|B|C] )
+dev.off()
+```
+
+
+## Average behavior flow for controls from transfer data (CRS and DREADD)
+
+```{r, fig.width=5, fig.height=5}
+D <- US$meta$Session == "DREADD" & US$meta$Treatment == "saline"
+E <- US$meta$Session == "CRS1" & US$meta$Condition == "Control"
+
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[D|E])
+
+pdf("../../Plots/Figure4_behaviorFlow_transfer.pdf", height = 5, width = 5)
+PlotBehaviorFlow(US, lab = "kmeans.25",file = names(US$files)[D|E])
+dev.off()
+```
+
+
+## Network graph for average behavior flow for controls from original data (CSI, FST and Yohimbine)
+
+```{r, fig.width=5, fig.height=5}
+A <- US$meta$Session == "PostCSI" & US$meta$Condition == "Control"
+B <- US$meta$Session == "PostYoh" & US$meta$Condition == "Control" & US$meta$Treatment == "Saline"
+C <- US$meta$Session == "FST45min" & US$meta$Treatment == "Control"
+
+PlotBehaviorFlow_Network(US, lab = "kmeans.25",file = names(US$files)[A|B|C], cluster = FALSE,min_avg_trans = 5)
+```
+
+
+## Network graph for average behavior flow for controls from transfer data (CRS and DREADD)
+
+```{r, fig.width=5, fig.height=5}
+D <- US$meta$Session == "DREADD" & US$meta$Treatment == "saline"
+E <- US$meta$Session == "CRS1" & US$meta$Condition == "Control"
+
+PlotBehaviorFlow_Network(US, lab = "kmeans.25",file = names(US$files)[D|E],  cluster = FALSE)
+```
+
+
+## Barplots for CRS and DREADD
+
+### CRS
+
+```{r, fig.height=2, fig.width=5.4}
+pdat <- US2$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US2$meta$filename)
+pdat$Group <- US2$meta$Condition[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(16)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#009E73")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/Figure4_barplot_CRS.pdf", height = 2, width = 5.4)
+print(p1)
+dev.off()
+
+US2$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US2$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+### DREADD
+
+```{r, fig.height=2, fig.width=5.25}
+pdat <- US3$Report$kmeans.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US3$meta$filename)
+pdat$Group <- US3$meta$Treatment[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(8)
+
+df$Group <- factor(df$Group, levels = c("saline", "cloz"))
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#E69F00")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../../Plots/Figure4_barplot_DREADD.pdf", height = 2, width = 5.25)
+print(p1)
+dev.off()
+
+US3$Results[[1]]$Statistics$kmeans.25
+
+cluster_stats <- US3$Results[[1]]$Statistics$kmeans.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+
+## Behavior flow differences for CRS and DREADD
+
+### CRS
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US2, grouping = US2$meta$Condition == "Repeated", lab = "kmeans.25")
+
+US2$Results[[1]]$TransitionStats$kmeans.25
+
+trans_stats <- US2$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+
+pdf("../../Plots/Figure4_behaviorFlow_CRS.pdf", height =5, width = 5)
+PlotBehaviorFlow_Delta(US2, grouping = US2$meta$Condition == "Repeated", lab = "kmeans.25")
+dev.off()
+```
+
+### DREADD
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow_Delta(US3, grouping = US3$meta$Treatment == "cloz", lab = "kmeans.25")
+
+US3$Results[[1]]$TransitionStats$kmeans.25
+
+trans_stats <- US3$Results[[1]]$TransitionStats$kmeans.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+
+pdf("../../Plots/Figure4_behaviorFlow_DREADD.pdf", height =5, width = 5)
+PlotBehaviorFlow_Delta(US3, grouping = US3$meta$Treatment == "cloz", lab = "kmeans.25")
+dev.off()
+```
+
+
+
+## BFA for CRS and DREADD
+
+### CRS
+
+```{r, fig.width=4, fig.height=2.5}
+PlotTransitionsStats(US2, labels = "kmeans.25")
+
+pdf("../../Plots/Figure4_bootstrapping_CRS.pdf", height = 2.5, width = 4)
+PlotTransitionsStats(US2, labels = "kmeans.25")
+dev.off()
+```
+
+### DREADD
+
+```{r, fig.width=4.9, fig.height=2.5}
+PlotTransitionsStats(US3, labels = "kmeans.25")
+
+pdf("../../Plots/Figure4_bootstrapping_DREADD.pdf", height = 2.5, width = 4)
+PlotTransitionsStats(US3, labels = "kmeans.25")
+dev.off()
+```
+
+## Power analysis curves for CRS and DREADD
+
+### CRS
+
+```{r, fig.width= 2.5, fig.height=2.5}
+include <- US2$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US2, US2$meta$Condition, lab = k)
+  A <- USt$meta$ratio[USt$meta$Condition == "Repeated"]
+  B <- USt$meta$ratio[USt$meta$Condition == "Control"]
+  CD <- rbind(CD, data.frame(test = "Control-vs-Repeated",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US2$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "Repeated-vs-Control",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+#Results <- CohensD_weighted(US1)
+Results_trans <- data.frame(test = "Repeated-vs-Control",label = "best_trans", category = "Transitions", weighted_cohenD = US2$Results[[1]]$TransitionStats$kmeans.25$transitions[1, ]$CohensD)
+Results <- rbind(Results, Results_trans, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:20
+sig <- 0.05
+
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "best_trans_Transitions", "kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#880B08","#994F88")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.1, 1) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p 
+
+pdf("../Plots_NEWANALYSES/Figure4_PowerPlots_CRS.pdf", height = 2.5, width = 2.1)
+print(p)
+dev.off()
+```
+
+
+### DREADD
+
+```{r, fig.width= 3, fig.height=2}
+include <- US3$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US3, US3$meta$Treatment, lab = k)
+  A <- USt$meta$ratio[USt$meta$Treatment == "cloz"]
+  B <- USt$meta$ratio[USt$meta$Treatment == "saline"]
+  CD <- rbind(CD, data.frame(test = "saline-vs-cloz",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US3$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "saline-vs-cloz",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+#Results <- CohensD_weighted(US1)
+Results_trans <- data.frame(test = "saline-vs-cloz",label = "best_trans", category = "Transitions", weighted_cohenD = US3$Results[[1]]$TransitionStats$kmeans.25$transitions[1, ]$CohensD)
+Results <- rbind(Results, Results_trans, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:20
+sig <- 0.05
+
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "best_trans_Transitions", "kmeans.25_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#880B08","#994F88")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.1, 1) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p 
+
+
+pdf("../Plots_NEWANALYSES/Figure4_PowerPlots_DREADD.pdf", height = 1.85, width = 2.1)
+print(p)
+dev.off()
+```
+
+
+## 2D embeddings for CRS and DREADD
+
+## CRS
+
+```{r, fig.height=2.7, fig.width=3.6}
+US2 <- CalculateStabilizedTransitions(US2, group = "Condition",control = "Control",labels = "kmeans.25")
+p1 <- Plot2DEmbedding(US2,transitionmatrices_stabilized = "kmeans.25",colorby = "Condition",colors =  c("grey","#009E73"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure4_2Dembedding_CRS.pdf", height = 2.7, width = 3.6)
+print(p1)
+dev.off()
+```
+
+## DREADD
+
+```{r, fig.height=2.7, fig.width=3.38}
+US3 <- CalculateStabilizedTransitions(US3, group = "Treatment",control = "saline",labels = "kmeans.25")
+p1 <- Plot2DEmbedding(US3,transitionmatrices_stabilized = "kmeans.25",colorby = "Treatment",colors =  c("#E69F00", "grey"),plot.sem = TRUE, method = "umap", seed = 123)
+print(p1)
+
+pdf("../../Plots/Figure4_2Dembedding_DREADD.pdf", height = 2.7, width = 3.38)
+print(p1)
+dev.off()
+```
+
+
+## 2D embedding of all data
+
+```{r, fig.width=5.5, fig.height=3.2}
+US_all <- CalculateStabilizedTransitions(US_all,"Condition","Control",subset = US_all$meta$Session == "CRS1")
+US_all <- CalculateStabilizedTransitions(US_all,"Condition","Control",subset = US_all$meta$Session == "PostCSI")
+US_all <- CalculateStabilizedTransitions(US_all,"Treatment","Control",subset = US_all$meta$Session == "FST45min")
+US_all <- CalculateStabilizedTransitions(US_all,"Treatment","Saline",subset = US_all$meta$Session == "PostYoh")
+US_all <- CalculateStabilizedTransitions(US_all,"Treatment","saline",subset = US_all$meta$Session == "DREADD")
+
+US_all$meta$Embedding <- "Control"
+US_all$meta$Embedding[US_all$meta$Session == "CRS1" & US_all$meta$Condition != "Control"] <- "CRS"
+US_all$meta$Embedding[US_all$meta$Session == "PostCSI" & US_all$meta$Condition != "Control"] <- "CSI"
+US_all$meta$Embedding[US_all$meta$Session == "FST45min" & US_all$meta$Treatment != "Control"] <- "FST_45min"
+US_all$meta$Embedding[US_all$meta$Session == "PostYoh" & US_all$meta$Treatment != "Saline"] <- "Yohimbin"
+US_all$meta$Embedding[US_all$meta$Session == "DREADD" & US_all$meta$Treatment != "saline"] <- "DREADD"
+
+p1 <- Plot2DEmbedding(US_all,transitionmatrices_stabilized = "kmeans.25", colorby = "Embedding", colors = c("grey","#009E73","#0072B2","#E69F00", "#D52800", "#CC79A7"), seed = 123,
+                      plot.sem = TRUE)
+p1
+
+pdf("../../Plots/Figure4_2Dembedding_allDatasets.pdf", height=3.2, width = 5.5)
+print(p1)
+dev.off()
+```

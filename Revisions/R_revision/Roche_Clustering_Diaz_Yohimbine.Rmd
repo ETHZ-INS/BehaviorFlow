@@ -1,0 +1,203 @@
+---
+title: "Roche_DiazAndYohimbie_Clustering"
+author: "Lukas von Ziegler"
+date: '2024-02-01'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Clustering of Yohimbine and Diazepam data from Roche together
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+set.seed(123)
+```
+
+## Clustering
+
+We first define our pipeline:
+
+```{r, eval = FALSE}
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 30)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 40.5*40.5, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- CreateTestSet(Tracking, integration_period = 15)
+  return(Tracking)
+}
+```
+
+We then load all 20 files (10 Yohimbine, 10 Diaz):
+
+```{r, eval = FALSE}
+n_files = 10
+
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(sample(files)[1:n_files],path,pipeline)
+
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(sample(files)[1:n_files],path,pipeline))
+
+#Lets ensure we have all 20 files, 10 yohimbine and 10 Diaz
+names(ts)
+```
+
+
+We are now ready to run the k-means clustering with 25 centers.
+
+```{r, eval = FALSE}
+ts <- UnsupervisedClusteringKmeans(ts, N_clusters = 25, Z_score_Normalize = TRUE)
+```
+
+
+Save the clustered data.
+
+```{r, eval = FALSE}
+ts2 <- ts
+
+for(j in names(ts2)) {
+  ts2[[j]]$labels[["kmeans.25_YohDiazRoche"]] <- ts2[[j]]$labels$unsupervised
+  ts2[[j]]$labels$unsupervised <- NULL
+}
+
+for(i in names(ts2)){
+  ts2[[i]]$train_x <- NULL
+}
+
+saveRDS(ts2,"../data/TS_RocheYohimbDiaz_25Clusters.rds")
+```
+
+
+train classifier
+
+```{r, eval = FALSE}
+ts <- readRDS("../data/TS_RocheYohimbDiaz_25Clusters.rds")
+for(i in names(ts[[1]]$labels)){
+  print(paste("creating training set for:",i, sep = " "))
+  for(j in names(ts)){
+    ts[[j]] <- CreateTrainingSet(ts[[j]], integration_period = 15, label.group = i)
+  }
+  
+  MLData <- CombineTrainingsData(ts,shuffle = TRUE)
+
+#initialize model
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 1024, activation = 'relu', input_shape = c(MLData$parameters$N_input),kernel_regularizer = regularizer_l2(l = 0)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = MLData$parameters$N_features, activation = 'softmax')
+
+#define optimizer
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_rmsprop(),
+  metrics = c('accuracy')
+)
+
+#train model
+history <- model %>% fit(
+  MLData$train_x, MLData$train_y, 
+  epochs = 30, batch_size = 512, 
+  validation_split = 0
+)
+
+save_model_hdf5(model,paste("../kmeans_classifiers_revision/",i,".model.hdf5", sep = ""))
+saveRDS(MLData$parameters,file = paste("../kmeans_classifiers_revision/",i,".model.PARAMETERS.rds", sep = ""))
+}
+```
+
+
+
+## Apply to all samples
+
+We first define our pipeline:
+
+```{r, eval = FALSE}
+
+model <- load_model_hdf5("../kmeans_classifiers_revision/kmeans.25_YohDiazRoche.model.hdf5")
+model_para <- readRDS("../kmeans_classifiers_revision/kmeans.25_YohDiazRoche.model.PARAMETERS.rds")
+model_beh <- load_model_hdf5("../kmeans_classifiers_revision/Roche_BehaviorClassifier.model.hdf5")
+mdoel_beh_para <- readRDS("../kmeans_classifiers_revision/Roche_BehaviorClassifier.model.PARAMETERS.rds")
+
+pipeline <- function(path){
+  Tracking <- ReadDLCDataFromCSV(path, fps = 30)
+  Tracking$data$centre <- NULL
+  Tracking <- CutTrackingData(Tracking,start = 300,end = 300)
+  Tracking <- CalibrateTrackingData(Tracking, "area",in.metric = 40.5*40.5, c("tr","tl","bl","br"))
+  Tracking <- AddOFTZones(Tracking)
+  Tracking <- CleanTrackingData(Tracking, likelihoodcutoff = 0.95, existence.pol = ScalePolygon(Tracking$zones$arena,1.3))
+  Tracking <- CalculateAccelerations(Tracking)
+  Tracking <- CreateSkeletonData_OFT_v4(Tracking)
+  Tracking <- ZscoreNormalizeFeatures(Tracking,omit =names(Tracking$features)[c(1:23)],type = "mean")
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[1:11], factor = 4)
+  Tracking$features <- ScaleFeatures(Tracking$features, select = names(Tracking$features)[20:23], factor = 0.1)
+  Tracking <- ClassifyBehaviors(Tracking, model_beh, mdoel_beh_para)
+  Tracking$labels$behavior <- Tracking$labels$classifications
+  Tracking$labels$classifications <- NULL
+  Tracking <- OFTAnalysis(Tracking, points = "bodycentre" ,movement_cutoff = 5, integration_period = 5)
+  Tracking <- ClassifyBehaviors(Tracking, model, model_para)
+  Tracking$labels$kmeans.25.Roche <- Tracking$labels$classifications
+  Tracking$labels$classifications <- NULL
+  
+  return(Tracking)
+}
+```
+
+We apply it to all files
+
+```{r, eval = FALSE}
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- RunPipeline(files,path,pipeline)
+
+path <- "../data/XXX/"
+files <- grep(pattern = ".csv",list.files(path),value = TRUE)
+ts <- append(ts,RunPipeline(files,path,pipeline))
+
+#Lets ensure we have all files
+names(ts)
+```
+
+## Create US Data
+
+```{r, eval = FALSE}
+US <- LoadFromTrackingObject(ts)
+meta <- read.table("../metadata_revision/metadata_Yoh_Diaz_Roche.csv", sep = ";", header = T)
+rownames(meta) <- meta$DLCFile
+meta$DLCFile <- NULL
+
+US <- AddMetaData(US, meta)
+
+US <- SmoothLabels_US(US, 5)
+US <- CalculateMetrics(US)
+US <- AddTransitionMatrixData(US)
+
+saveRDS(US,"../data_revision/US_YohDiazRoche.rds")
+```
+

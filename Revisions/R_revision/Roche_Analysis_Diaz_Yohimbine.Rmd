@@ -1,0 +1,248 @@
+---
+title: "Roche_Analysis_Diaz_Yohimbine"
+author: "Lukas von Ziegler"
+date: '2024-02-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Analysis of Clustering Results of Yohimbine and Diazepam Experiments at Roche
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(pwr)
+set.seed(123)
+```
+
+## Classical analyses
+
+```{r, fig.width= 4, fig.height=3}
+US <- readRDS("../data_revision/US_YohDiazRoche.rds")
+US$Report$kmeans.25.Roche <- na_replace(US$Report$kmeans.25.Roche )
+
+
+US <- CalculateStabilizedTransitions(US, group = "Group",control = "Veh", subset =US$file_names[US$meta$Experiment == "Yohimbine"])
+US <- CalculateStabilizedTransitions(US, group = "Group",control = "Veh", subset =US$file_names[US$meta$Experiment == "Diazepam"])
+
+
+US$meta$Group2 <- paste(US$meta$Group, US$meta$Dosage, sep = "_")
+US$Report$raw$Group <- US$meta$Group
+US$Report$raw$Group2 <- US$meta$Group2
+US$Report$raw$Experiment <- US$meta$Experiment 
+
+US$Report$raw$Group2 <- factor(US$Report$raw$Group2, levels = c("Diaz_3","Diaz_2","Diaz_1","Veh_0","Yoh_1","Yoh_3","Yoh_6"))
+```
+
+
+
+Total effects independent of dosage
+
+```{r, fig.width= 3, fig.height=3}
+ggplot(US$Report$raw, aes(Group, bodycentre.distance.moving, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+ggplot(US$Report$raw, aes(Group, bodycentre.center.total.time, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+ggplot(US$Report$raw, aes(Group, behavior.SupportedRearing.count, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+ggplot(US$Report$raw, aes(Group, behavior.UnsupportedRearing.count, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+```
+
+Dosage dependent effects
+
+```{r, fig.width= 4.5, fig.height=3}
+ggplot(US$Report$raw, aes(Group2, log10(bodycentre.distance.moving), color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+ggplot(US$Report$raw, aes(Group2, bodycentre.center.total.time, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+
+ggplot(US$Report$raw, aes(Group2, behavior.SupportedRearing.count, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+ggplot(US$Report$raw, aes(Group2, behavior.UnsupportedRearing.count, color = Experiment)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  geom_point(position = position_jitterdodge()) + 
+  theme_bw() + 
+  scale_color_manual(values = c("#4E60B7","#9E3436"))
+
+```
+
+
+## 2D embedding
+
+```{r, fig.width= 4, fig.height=3}
+Plot2DEmbedding(US,transitionmatrices_stabilized = "kmeans.25.Roche", colorby = "Group2", plot.sem = T, colors = c("#B2BCEC","#4E60B7","#071B7B", "grey","#E89698","#9E3436","#6D0002"))
+```
+
+## Cluster Usage
+
+```{r, fig.width= 10, fig.height=4}
+pdat <- US$Report$kmeans.25.Roche
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US$meta$filename)
+pdat$Group2 <- US$meta$Group2[assign]
+pdat$Experiment <- US$meta$Experiment[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 70, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group2, pdat$Experiment), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Experiment","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group2, pdat$Experiment), FUN = sd)$x / sqrt(30)
+df$Group <- factor(df$Group, levels = c("Veh_0","Diaz_1","Diaz_2","Diaz_3","Yoh_1","Yoh_3","Yoh_6"))
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("grey","#B2BCEC","#4E60B7","#071B7B","#E89698","#9E3436","#6D0002")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:70)) +
+  facet_wrap(~Experiment, ncol = 1,scales = "free_x")
+
+print(p1)
+```
+
+## Analysis of Yohimbine
+
+### Two group analysis
+
+```{r, fig.height= 8, fig.width=6, warning=FALSE}
+US_Yoh <- SplitUSData(US, select = US$meta$Experiment == "Yohimbine")
+
+US_Yoh <- MultipleTwoGroupAnalysis(US_Yoh, group = US_Yoh$meta$Group2, lab = "kmeans.25.Roche")
+
+PlotTransitionsStats(US_Yoh)
+```
+
+power analysis for all these tests
+
+```{r, fig.height= 4, fig.width=5, warning=FALSE}
+PlotPowerAnalysisCurves(US_Yoh, n_range = 1:20, sig = c(0.05), condensed = TRUE)
+```
+
+### one way ANOVA analysis for each cluster usage
+
+```{r}
+dat <- US_Yoh$Report$kmeans.25.Roche
+keep <- grep(".count", names(dat))
+dat <- dat[,keep]
+test <- names(dat)
+dat$group <- US_Yoh$meta$Group2
+dat$group <- factor(dat$group, levels = c("Veh_0","Yoh_1","Yoh_3","Yoh_6"))
+
+ps <- data.frame()
+for(t in test){
+  print(paste("YOHIMBINE CLUSTER TESTING:", t ,sep = " "))
+  test_dat <- data.frame(response = dat[,t], group = dat$group)
+  mod <- lm(response~group,data = test_dat)
+  print(summary(mod))
+  ps <- rbind(ps, data.frame(test = t, p.value = summary(aov(mod))[[1]][5][[1]][1]))
+}
+
+#which survive multiple testing corrections?
+ps$adj.p.value <- p.adjust(ps$p.value, method = "BH")
+print(ps[order(ps$adj.p.value),])
+```
+
+
+## Analysis of Diazepam
+
+### Two group analysis
+
+```{r, fig.height= 8, fig.width=6, warning=FALSE}
+US_Yoh <- SplitUSData(US, select = US$meta$Experiment == "Diazepam")
+
+US_Yoh <- MultipleTwoGroupAnalysis(US_Yoh, group = US_Yoh$meta$Group2, lab = "kmeans.25.Roche")
+
+PlotTransitionsStats(US_Yoh)
+```
+
+Power analysis on all these tests
+
+```{r, fig.height= 4, fig.width=5, warning=FALSE}
+PlotPowerAnalysisCurves(US_Yoh, n_range = 1:50, sig = c(0.05), condensed = TRUE)
+```
+
+
+### one way ANOVA analysis for each cluster usage
+
+```{r}
+dat <- US_Yoh$Report$kmeans.25.Roche
+keep <- grep(".count", names(dat))
+dat <- dat[,keep]
+test <- names(dat)
+dat$group <- US_Yoh$meta$Group2
+dat$group <- factor(dat$group, levels = c("Veh_0","Diaz_1","Diaz_2","Diaz_3"))
+
+ps <- data.frame()
+for(t in test){
+  print(paste("DIAZEPAM CLUSTER TESTING:", t ,sep = " "))
+  test_dat <- data.frame(response = dat[,t], group = dat$group)
+  mod <- lm(response~group,data = test_dat)
+  print(summary(mod))
+  ps <- rbind(ps, data.frame(test = t, p.value = summary(aov(mod))[[1]][5][[1]][1]))
+}
+
+#which survive multiple testing corrections?
+ps$adj.p.value <- p.adjust(ps$p.value, method = "BH")
+print(ps[order(ps$adj.p.value),])
+
+```
+
+
+
+
+
+
+

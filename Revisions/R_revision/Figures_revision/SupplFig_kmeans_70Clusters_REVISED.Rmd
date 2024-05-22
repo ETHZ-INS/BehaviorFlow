@@ -1,0 +1,336 @@
+---
+title: "SupplFigure_kmeans_70Clusters"
+author: "Fabienne Rössler"
+date: '2023-05-10'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+set.seed(123)
+```
+
+# Suppl. Figure for k-means (with 70 clusters)
+
+```{r}
+US <- readRDS("../data/US_CSI_SensitivityAssays_processed.rds")
+US_temp <- readRDS("../data/US_AllData_raw.rds")
+
+US_temp <- SplitUSData(US_temp,select = US_temp$meta$Session =="PostCSI")
+US$Report$raw <- US_temp$Report$raw
+
+US <- TwoGroupAnalysis(US, US$meta$Condition, lab = "kmeans.70_CSI")
+```
+
+## Decision on best number of clusters for k-means
+
+```{r}
+US2 <- readRDS("../../data/US_100_Clusters.rds")
+
+clusters_100 <- US2$Report$kmeans.100
+
+clusters_100 <- clusters_100[, str_detect(colnames(clusters_100), "nframes")]
+clusters_100[is.na(clusters_100)] <- 0
+
+colnames(clusters_100) <- 0
+
+# Compute proportions
+row_sum <- rowSums(clusters_100)
+clusters_100_prop <- clusters_100/row_sum
+
+# Sort proportions from highest to lowest for each file
+for (i in 1:nrow(clusters_100_prop))
+  clusters_100_prop[i, ] <- sort(clusters_100_prop[i, ], decreasing = TRUE)
+
+# Calculate mean proportions over all files 
+mean_prop <- sapply(clusters_100_prop, mean)
+sem_prop <- sapply(clusters_100_prop, function(x)sd(x)/sqrt(length(x)))
+
+# Add up proportions
+sum_prop <- clusters_100_prop
+for (i in 1:nrow(clusters_100_prop))
+  for (j in 2:ncol(clusters_100_prop))
+    sum_prop[i, j] <- rowSums(clusters_100_prop[i, 1:j])
+
+# Calculate mean sum of proportions over all files 
+mean_sum_prop <- sapply(sum_prop, mean)
+sem_sum_prop <- sapply(sum_prop, function(x)sd(x)/sqrt(length(x)))
+```
+
+Plotting the results.
+
+```{r, fig.height=2.2, fig.width=3.2}
+min_clust <- which(mean_sum_prop > 0.95)[1]
+
+df2 <- data.frame(1:100, mean_sum_prop, sem_sum_prop)
+
+p1 <- ggplot(df2, aes(x=X1.100,y=mean_sum_prop)) + 
+  geom_ribbon(aes(ymin = mean_sum_prop-sem_sum_prop,ymax = mean_sum_prop+sem_sum_prop,alpha = 0.1)) + 
+  geom_line() +
+  scale_color_manual(values = "black") +
+  scale_fill_manual(values = "grey") +
+  theme_bw() + ylab("Additive cluster proportion") + xlab("Sorted clusters") +
+  geom_hline(yintercept = 0.95, linetype='dotted', color = "red") + geom_vline(xintercept = min_clust, linetype='dotted', color = "red") +
+  theme(legend.position="none", panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + geom_vline(xintercept = 70, linetype='dashed', color = "blue")
+
+print(p1)
+
+pdf("../../Plots/SupplFig_kmeans70_additiveClusterProps.pdf", height = 2.2, width = 3.2)
+print(p1)
+dev.off()
+```
+
+
+## Power analysis curves for different integration periods
+
+```{r,fig.width= 1.7, fig.height=1.8}
+include <- c("kmeans.25.5_CSI","kmeans.25.10_CSI","kmeans.25_CSI","kmeans.25.30_CSI")
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US, US$meta$Condition, lab = k)
+  A <- USt$meta$ratio[USt$meta$Condition == "CSI"]
+  B <- USt$meta$ratio[USt$meta$Condition == "Control"]
+  CD <- rbind(CD, data.frame(test = "CSI-vs-Control",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+include_raw <- c("bodycentre.center.total.time","bodycentre.distance.moving")
+Results <- data.frame()
+for(j in include_raw){
+  curr_Results <- US$Results[[1]]$Statistics$raw
+  Results <- rbind(Results, data.frame(test = "CSI-vs-Control",label = j, category = "Usage", weighted_cohenD = curr_Results[which(curr_Results$name == j), ]$CohensD))
+}
+
+#Results_weighted <- CohensD_weighted(US)
+#Results_trans <- data.frame(test = "CSI-vs-Control",label = "best_trans", category = "Transitions", weighted_cohenD = US1$Results[[1]]$TransitionStats$kmeans.25$transitions[1, ]$CohensD)
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:30
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("bodycentre.center.total.time_Usage","bodycentre.distance.moving_Usage", "kmeans.25.5_CSI_BFL","kmeans.25.10_CSI_BFL","kmeans.25_CSI_BFL","kmeans.25.30_CSI_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#AFABAB","#3B3838","#7886CB","#4E60B7","#283A94","#071B7B")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/SupplFig1_PowerPlots_CSI_diffIntegrationPeriods.pdf", height = 1.8, width = 1.5)
+print(p)
+dev.off()
+```
+
+
+## Sensitivitiy curves for "classical" vs. cluster/transition stats
+
+```{r, fig.width= 3.3, fig.height=2}
+dat <- readRDS("../../data/CSI_Sensitivity_50sim_classical.rds")
+dat$classical.top.p.nadj <- dat$classical.top.p / 4
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.70.topclust.FDR","kmeans.70.toptrans.FDR","classical.top.p"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("black","#3A46BF","#C44523")) +
+  scale_fill_manual(values = c("black","#3A46BF","#C44523")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("Group Size") +
+  scale_y_continuous(limits = c(0,6)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+
+p2 <- ggplot(means[means$Group.1 %in% c("kmeans.70.topclust.p","kmeans.70.toptrans.p","classical.top.p.nadj"),], aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("black","#3A46BF","#C44523")) +
+  scale_fill_manual(values = c("black","#3A46BF","#C44523")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("Group Size") + 
+  scale_y_continuous(limits = c(0,6)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p1)
+print(p2)
+
+
+pdf("../../Plots/SupplFig_kmeans70_classicalvsClusters.pdf", height = 2.2, width = 3.75)
+print(p1)
+dev.off()
+
+
+pdf("../../Plots/SupplFig_kmeans70_classicalvsClusters_rawP.pdf", height = 2.2, width = 3.6)
+print(p2)
+dev.off()
+```
+
+## BFA only on control or CSI animals
+
+```{r}
+US_ctrl <- SplitUSData(US, select = US$meta$Condition %in% c("Control"))
+
+set.seed(42)
+US_ctrl$meta$rand_group <- sample(rep(c(0,1),length.out=30),nrow(US_ctrl$meta))
+
+US_ctrl$Results <- list()
+US_ctrl <- TwoGroupAnalysis(US_ctrl, US_ctrl$meta$rand_group, lab = "kmeans.70_CSI")
+```
+
+Plot BFA for randomly assigned groups:
+
+```{r, fig.width= 2, fig.height=1.8}
+PlotTransitionsStats(US_ctrl, labels = "kmeans.70_CSI")
+
+pdf("../Plots_NEWANALYSES/SupplFigure1_bootstrapping_Controls_kmeans70.pdf", height = 1.8, width = 2)
+PlotTransitionsStats(US_ctrl, labels = "kmeans.70_CSI")
+dev.off()
+```
+
+Assign random class to CSI animals and run BFA:
+
+```{r}
+US_CSI <- SplitUSData(US, select = US$meta$Condition %in% c("CSI"))
+
+set.seed(42)
+US_CSI$meta$rand_group <- sample(rep(c(0,1),length.out=30),nrow(US_CSI$meta))
+
+US_CSI$Results <- list()
+US_CSI <- TwoGroupAnalysis(US_CSI, US_CSI$meta$rand_group, lab = "kmeans.70_CSI")
+```
+
+Plot BFA for randomly assigned groups:
+
+```{r, fig.width= 2, fig.height=1.8}
+PlotTransitionsStats(US_CSI, labels = "kmeans.70_CSI")
+
+pdf("../Plots_NEWANALYSES/SupplFigure1_bootstrapping_CSI_kmeans70.pdf", height = 1.8, width = 2)
+PlotTransitionsStats(US_CSI, labels = "kmeans.70_CSI")
+dev.off()
+```
+
+
+## Results of sensitivity analysis
+
+Plot for comparison between different clustering algorithms:
+
+```{r,fig.width= 3.2, fig.height=1.8}
+dat <- readRDS("../data/OnlyCSI_Sensitivity_50sim.rds")
+
+dat[dat == 0] <- min(dat[dat != 0])
+
+#-log 10 transform statistical values
+dat[,-c(1:2)] <- -log10(dat[,-c(1:2)])
+
+#aggregate mean and sd
+means <- aggregate(dat, FUN = mean, by = list(dat$n_animals))
+sds <- aggregate(dat, FUN = sd, by = list(dat$n_animals))
+means <- means[,-c(2:3)]
+sds <- sds[,-c(2:3)]
+
+gs <- means$Group.1 / 2
+means <- gather(means, key = "Group.1", value = "p.value")
+means$GroupSize <- rep(gs,ncol(dat) - 2)
+sds <- gather(sds, key = "Group.1", value = "sd")
+means$sem <- gather(sds, key = "Group.1", value = "sd")$sd / sqrt(max(dat$n_sim))
+
+means$Type <- "Classical"
+means$Type[grepl("kmeans.",means$Group.1)] <- "kmeans"
+means$Type[grepl("BSOID.",means$Group.1)] <- "BSOID"
+means$Type[grepl("VAME.",means$Group.1)] <- "VAME"
+means_CSI <- means
+
+#p1 <- ggplot(means[means$Group.1 %in% c("kmeans.70.matstats.p","BSOID.8.matstats.p","VAME.80.matstats.p","classical.top.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) +
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.70.matstats.p","BSOID.8.matstats.p","VAME.80.matstats.p","classical.top.p"),], aes(GroupSize,p.value, color = Group.1)) +
+#p1 <- ggplot(means[means$Group.1 %in% c("kmeans.70.matstats.p","classical.top.p","DLC.PCA.p"),], aes(GroupSize,p.value, color = Group.1)) +
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  ylim(0.3, 9.3) +
+  scale_x_reverse() + 
+  scale_color_manual(values = c("#90c789", "grey","#994F88", "#f09230")) +
+  scale_fill_manual(values = c("#90c789", "grey","#994F88", "#f09230")) +
+  #geom_hline(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p1)
+
+pdf("../Plots_NEWANALYSES/SupplFigure1_SensitivityCurves_comparison.pdf", height = 1.8, width = 3.37)
+print(p1)
+dev.off()
+```
+
+Plot for comparing different cluster numbers:
+
+```{r,fig.width= 3.37, fig.height=1.8}
+p1 <- ggplot(means[means$Group.1 %in% c("kmeans.10.matstats.p","kmeans.25.matstats.p","kmeans.70.matstats.p", "kmeans.100.matstats.p","classical.top.p"),], 
+             aes(GroupSize,p.value, color = Group.1)) + 
+  geom_ribbon(aes(ymin = p.value-sem,ymax = p.value+sem, fill = Group.1,alpha = 0.1)) + 
+  geom_line(size = 1) +
+  scale_x_reverse() + 
+  ylim(0.3, 9.3) +
+  scale_color_manual(values = c("grey","#D5B9D1","#511B44", "#B27CA6", "#8A487A")) +
+  scale_fill_manual(values = c("grey","#D5B9D1","#511B44", "#B27CA6", "#8A487A")) +
+  #(yintercept = -log10(0.05), color = "red") +
+  theme_bw() + ylab("-log10(p-value)") + xlab("group size") +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+print(p1)
+
+pdf("../Plots_NEWANALYSES/SupplFigure1_SensitivityCurves_diffNumClusters.pdf", height = 1.8, width = 3.39)
+print(p1)
+dev.off()
+```

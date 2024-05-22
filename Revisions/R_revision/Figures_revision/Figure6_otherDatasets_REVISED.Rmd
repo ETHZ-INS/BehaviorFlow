@@ -1,0 +1,384 @@
+---
+title: "Figure_otherDatasets"
+author: "Fabienne Roessler"
+date: '2024-03-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning = FALSE}
+source("DLCAnalyzer.R")
+source("BFA_BFF.R")
+library(sp)         #tested with v1.3-2
+library(imputeTS)   #tested with v2.7
+library(ggplot2)    #tested with v3.1.0
+library(ggmap)      #tested with v3.0.0
+library(data.table) #tested with v1.12.8
+library(cowplot)    #tested with v0.9.4
+library(corrplot)   #tested with v0.84
+library(keras)      #REQUIRES TENSORFLOW INSTALL. tested with v2.2.5.0
+library(readr)
+library(tidyr)
+library(biganalytics)
+library(M3C)
+library(stringr)
+library(reticulate)
+library(pwr)
+set.seed(123)
+```
+
+# Figure 6 with results for MBT and yohimbine/diazepam from Roche
+
+## MBT after yohimbine
+
+Load data:
+
+```{r, eval = FALSE}
+US <- readRDS("../data_revision/US_MBTY_diffClustering.rds")
+US <- TwoGroupAnalysis(US, US$meta$Group)
+```
+
+Boxplot for marbles burried:
+
+```{r, fig.width= 2, fig.height=2}
+pdat <- US$meta$VisibleMarbles
+pdat <- 20 - pdat
+#rownames(pdat) <- rownames(US$meta)
+
+group <- US$meta$Group
+
+a <- pdat[group == unique(group)[1]]
+b <- pdat[group == unique(group)[2]]
+t.test(a,b)
+
+pdat <- data.frame(pdat)
+pdat <- gather(pdat,key = "key",value = "value")
+pdat$group <- group
+
+p1 <- ggplot(pdat,aes(group,value, color = group)) + 
+  geom_boxplot(outlier.shape = NA) + 
+  scale_color_manual(values = c("black","#CC9900")) + 
+  geom_point(position = position_jitter(width = 0.15)) + 
+  facet_wrap(~key, nrow = 1, scales = "free") + ylim(0, 22) +
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank())
+p1
+
+pdf("../Plots_NEWANALYSES/Figure6_MBT_marblesBuried_boxplots.pdf", height = 2, width = 2)
+print(p1)
+dev.off()
+```
+
+Power analysis curves:
+
+```{r,fig.width= 1.7, fig.height=2}
+include <- US$label_names
+CD <- data.frame()
+for(k in include){
+  USt <- StratifyGroups(US, US$meta$Group, lab = k)
+  A <- USt$meta$ratio[USt$meta$Group == "YOH"]
+  B <- USt$meta$ratio[USt$meta$Group == "Ctrl"]
+  CD <- rbind(CD, data.frame(test = "YOH-vs-Ctrl",label = k, category = "BFL", weighted_cohenD = abs(cohensD(A,B))))
+}
+
+a <- US$meta$VisibleMarbles[US$meta$Group == "YOH"]
+b <- US$meta$VisibleMarbles[US$meta$Group == "Ctrl"]
+Results <- data.frame(test = "YOH-vs-Ctrl",label = "visible", category = "marbles", weighted_cohenD = abs(cohensD(A,B)))
+Results <- rbind(Results, CD)
+Results$group <- paste(Results$label,Results$category, sep ="_")
+
+ns <- 3:7
+sig <- 0.05
+
+#select <- c("raw_Usage", "kmeans.10_BFL", "kmeans.25_BFL", "kmeans.50_BFL", "kmeans.100_BFL")
+select <- c("visible_marbles", "kmeansMBT.10_BFL","kmeansMBT.25_BFL","kmeansMBT.50_BFL","kmeansMBT.70_BFL", "kmeansMBT.100_BFL")
+Pcurve <- Results[Results$group %in% select,]
+pdat <- data.frame()
+for(i in 1:nrow(Pcurve)){
+  D <- Pcurve$weighted_cohenD[i]
+  for(n in ns){
+    power <- pwr.t.test(n, D, sig,power = NULL,type="two.sample", alternative="two.sided")$power
+    pdat <- rbind(pdat,data.frame(test = Pcurve$group[i], n = n, power = power))
+  }
+}
+pdat$test <- factor(pdat$test, levels = select)
+p <- ggplot(pdat, aes(n,power, color = test)) + geom_line() + theme_bw() + scale_color_manual(values = c("#3B3838","#D5B9D1","#B27CA6", "#8A487A","#6F3965", "#511B44")) + #+ scale_color_manual(values = c("grey","#D5B9D1","#B27CA6", "#8A487A","#511B44")) + 
+  theme_bw() + xlab("group size") + ylim(0.8, 1) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.position = "none")
+p
+
+pdf("../Plots_NEWANALYSES/Figure6_PowerPlots_MBT_diffClusteringNumbers.pdf", height = 2, width = 1.7)
+print(p)
+dev.off()
+```
+
+Barplot for cluster usage:
+
+```{r, fig.height=2, fig.width=5.7}
+pdat <- US$Report$kmeansMBT.25
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US$meta$filename)
+pdat$Group <- US$meta$Group[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group), FUN = sd)$x / sqrt(10)
+
+pdat_temp <- pdat[pdat$Group == "Ctrl", ]
+df$SEM[df$Group=="Ctrl"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(9)
+
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#CC9900")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~type, ncol = 1,scales = "free")
+
+print(p1)
+
+pdf("../Plots_NEWANALYSES/Figure6_MBT_kmeans25_barplot.pdf", height = 2, width = 5.7)
+print(p1)
+dev.off()
+
+cluster_stats <- US$Results[[1]]$Statistics$kmeansMBT.25
+cluster_stats_updated <- cluster_stats[grep("count", cluster_stats$name), ]
+cluster_stats_updated$FDR <- p.adjust(cluster_stats_updated$p, method = "BY")
+cluster_stats_updated
+```
+
+Circle plot for behavior flow:
+
+```{r, fig.height=5, fig.width=5}
+PlotBehaviorFlow(US,lab = "kmeansMBT.25")
+
+pdf("../Plots_NEWANALYSES/Figure6_MBT_kmeans25_circlePlot.pdf", height = 5, width = 5)
+PlotBehaviorFlow(US,lab = "kmeansMBT.25")
+dev.off()
+
+trans_stats <- US$Results[[1]]$TransitionStats$kmeansMBT.25$transitions
+trans_stats_updated <- tidyr::drop_na(trans_stats, "p.value")
+trans_stats_updated$FDR <- p.adjust(trans_stats_updated$p.value, method = "BY")
+trans_stats_updated
+```
+
+Plot result of BFA:
+
+```{r, fig.height=2, fig.width=2.3}
+PlotTransitionsStats(US, labels = "kmeansMBT.25")
+
+pdf("../Plots_NEWANALYSES/Figure6_MBT_kmeans25_BFA.pdf", height = 2, width = 2.3)
+PlotTransitionsStats(US, labels = "kmeansMBT.25")
+dev.off()
+```
+
+2D embedding yohimbine vs. control:
+
+```{r, fig.height=3.2, fig.width=4.5}
+US <- CalculateStabilizedTransitions(US, group = "Group",control = "Ctrl",labels = "kmeansMBT.25")
+p <- Plot2DEmbedding(US,transitionmatrices_stabilized = "kmeansMBT.25",colorby = "Group", colors =  c("grey", "#CC9900"), plot.sem = TRUE, method = "umap", seed = 123)
+p
+
+#pdf("../Plots_NEWANALYSES/Figure6_2Dembedding_IFS_resilienceGroups.pdf", height = 3.2, width = 4.5)
+#print(p)
+#dev.off()
+```
+
+Bin analysis for digging behavior in cluster 3:
+
+```{r, fig.height=2, fig.width=3.3, warning=FALSE}
+US_Bin <- CreateBinnedData(US, binlength = 30 * 60 * 6, max_n_bin = 5)
+
+US_Bin <- CalculateMetrics(US_Bin)
+
+dig <- US_Bin$Report$kmeansMBT.25
+dig <- imputeTS::na_replace(dig)
+dig <- cbind(dig,US_Bin$meta[,c("Group","bin","bin_int")])
+
+p <- ggplot(dig, aes(bin, X3.nframes / 30, color = Group)) + 
+  geom_boxplot(outlier.shape = NA) + geom_point(position = position_jitterdodge(jitter.width = 0.1)) + 
+  theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), panel.background = element_blank()) +
+  ggtitle("Digging cluster in 6 min bins") + ylab("time spent digging / s") + scale_color_manual(values = c("black","#CC9900"))
+p
+
+pdf("../Plots_NEWANALYSES/Figure6_MBT_kmeans25_diggingOverTime.pdf", height = 2, width = 3.3)
+print(p)
+dev.off()
+```
+
+2D embedding for different bins: 
+
+```{r, fig.height=2.75, fig.width=5, warning=FALSE}
+US_Bin <- AddTransitionMatrixData(US_Bin)
+
+US_Bin$meta$Group_bin <- paste(US_Bin$meta$Group, US_Bin$meta$bin)
+
+Plot2DEmbedding(US_Bin, transitionmatrices = "kmeansMBT.25", colorby = "Group_bin", colors = c("#D1D1D1","#AEAEAE","#747474","#3A3A3A","#171717","#FFDD7D","#F2B300","#CC9900","#A87C00","#6C5000"), plot.sem = T)
+
+pdf("../Plots_NEWANALYSES/Figure6_MBT_kmeans25_2Dembedding_binned.pdf", height = 2.75, width = 5)
+Plot2DEmbedding(US_Bin, transitionmatrices = "kmeansMBT.25", colorby = "Group_bin", colors = c("#D1D1D1","#AEAEAE","#747474","#3A3A3A","#171717","#FFDD7D","#F2B300","#CC9900","#A87C00","#6C5000"), plot.sem = T)
+dev.off()
+```
+
+## Roche data
+
+Load data:
+
+```{r, eval = FALSE}
+US_R <- readRDS("../data_revision/US_YohDiazRoche.rds")
+US_R_Yoh <- SplitUSData(US_R, select = US_R$meta$Experiment == "Yohimbine")
+US_R_Yoh <- TwoGroupAnalysis(US_R_Yoh, US_R_Yoh$meta$Group)
+
+US_R_Diaz <- SplitUSData(US_R, select = US_R$meta$Experiment == "Diazepam")
+US_R_Diaz <- TwoGroupAnalysis(US_R_Diaz, US_R_Diaz$meta$Group)
+```
+
+Cluster usage:
+
+```{r, fig.width= 9.6, fig.height=4}
+US_R$meta$Group2 <- paste(US_R$meta$Group, US_R$meta$Dosage, sep = "_")
+US_R$Report$raw$Group <- US_R$meta$Group
+US_R$Report$raw$Group2 <- US_R$meta$Group2
+US_R$Report$raw$Experiment <- US_R$meta$Experiment 
+US_R$Report$raw$Group2 <- factor(US_R$Report$raw$Group2, levels = c("Diaz_3","Diaz_2","Diaz_1","Veh_0","Yoh_1","Yoh_3","Yoh_6"))
+
+pdat <- US_R$Report$kmeans.25.Roche
+pdat <- data.frame(filename = rownames(pdat),pdat)
+pdat <- gather(pdat,key = "key",value = "value", -filename)
+pdat$value[is.na(pdat$value)] <- 0
+pdat$type <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][2]}))
+pdat$Cluster <- unlist(lapply(pdat$key,FUN = function(x){strsplit(x, split = "\\.")[[1]][1]}))
+pdat$Cluster <- as.integer(unlist(lapply(pdat$Cluster,FUN = function(x){strsplit(x, split = "X")[[1]][2]})))
+assign <- match(pdat$filename, US_R$meta$filename)
+pdat$Group2 <- US_R$meta$Group2[assign]
+pdat$Experiment <- US_R$meta$Experiment[assign]
+pdat$value <- ifelse(pdat$type == "nframes",pdat$value / 25, pdat$value)
+pdat$type[pdat$type == "nframes"] <- "time"
+pdat <- pdat[pdat$type == "count",]
+df <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group2, pdat$Experiment), FUN = mean)
+colnames(df) <- c("Cluster","type","Group","Experiment","Mean")
+df$SEM <- aggregate(pdat$value,by = list(pdat$Cluster, pdat$type, pdat$Group2, pdat$Experiment), FUN = sd)$x / sqrt(24)
+
+pdat_temp <- pdat[pdat$Group == "Veh_0", ]
+df$SEM[df$Group=="Veh_0"] <- aggregate(pdat_temp$value,by = list(pdat_temp$Cluster, pdat_temp$type, pdat_temp$Group), FUN = sd)$x / sqrt(8)
+
+df$Group <- factor(df$Group, levels = c("Veh_0","Diaz_1","Diaz_2","Diaz_3","Yoh_1","Yoh_3","Yoh_6"))
+
+p1 <- ggplot(df, aes(x=Cluster, y=Mean, fill=Group, width = 0.75)) + 
+  geom_bar(stat="identity", color="black", 
+           position=position_dodge()) +
+  scale_fill_manual(values = c("white","#B3E8B0","#008000","#003300","#F2DAF2","#A923A3","#660066")) +
+  geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2,
+                position=position_dodge(.8)) +
+  #geom_point(data = pdat, aes(Cluster, value, color = Group), position = position_jitterdodge(.3), color = "black", alpha = 0.2, size = 0.3)+ 
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  scale_x_continuous(breaks = c(1:25)) +
+  facet_wrap(~Experiment, ncol = 1,scales = "free_x")
+
+print(p1)
+
+pdf("../Plots_NEWANALYSES/Figure6_Roche_kmeans25_barplots.pdf", height = 4, width = 9.6)
+p1
+dev.off()
+```
+
+ANOVA for yohimbine cluster usage:
+
+```{r}
+US_R_Yoh$meta$Group2 <- paste(US_R_Yoh$meta$Group, US_R_Yoh$meta$Dosage, sep = "_")
+dat <- US_R_Yoh$Report$kmeans.25.Roche
+keep <- grep(".count", names(dat))
+dat <- dat[,keep]
+test <- names(dat)
+dat$group <- US_R_Yoh$meta$Group2
+dat$group <- factor(dat$group, levels = c("Veh_0","Yoh_1","Yoh_3","Yoh_6"))
+
+ps <- data.frame()
+for(t in test){
+  print(paste("Yohimbine CLUSTER TESTING:", t ,sep = " "))
+  test_dat <- data.frame(response = dat[,t], group = dat$group)
+  mod <- lm(response~group,data = test_dat)
+  print(summary(mod))
+  ps <- rbind(ps, data.frame(test = t, p.value = summary(aov(mod))[[1]][5][[1]][1]))
+}
+
+#which survive multiple testing corrections?
+ps$adj.p.value <- p.adjust(ps$p.value, method = "BH")
+print(ps[order(ps$adj.p.value),])
+```
+
+ANOVA for diazepam cluster usage:
+
+```{r}
+US_R_Diaz$meta$Group2 <- paste(US_R_Diaz$meta$Group, US_R_Diaz$meta$Dosage, sep = "_")
+dat <- US_R_Diaz$Report$kmeans.25.Roche
+keep <- grep(".count", names(dat))
+dat <- dat[,keep]
+test <- names(dat)
+dat$group <- US_R_Diaz$meta$Group2
+dat$group <- factor(dat$group, levels = c("Veh_0","Diaz_1","Diaz_2","Diaz_3"))
+
+ps <- data.frame()
+for(t in test){
+  print(paste("Yohimbine CLUSTER TESTING:", t ,sep = " "))
+  test_dat <- data.frame(response = dat[,t], group = dat$group)
+  mod <- lm(response~group,data = test_dat)
+  print(summary(mod))
+  ps <- rbind(ps, data.frame(test = t, p.value = summary(aov(mod))[[1]][5][[1]][1]))
+}
+
+#which survive multiple testing corrections?
+ps$adj.p.value <- p.adjust(ps$p.value, method = "BH")
+print(ps[order(ps$adj.p.value),])
+```
+
+Results from BFA: 
+
+```{r, fig.height= 5.1, fig.width=2.6}
+US_R_Yoh <- MultipleTwoGroupAnalysis(US_R_Yoh, US_R_Yoh$meta$Dosage)
+
+PlotTransitionsStats(US_R_Yoh, analysis = c("0-vs-1", "0-vs-3", "0-vs-6") , labels = "kmeans.25.Roche")
+
+pdf("../Plots_NEWANALYSES/Figure6_Roche_Yohimbine_kmeans25_BFA.pdf", height = 5.1, width = 2.6)
+PlotTransitionsStats(US_R_Yoh, analysis = c("0-vs-1", "0-vs-3", "0-vs-6") , labels = "kmeans.25.Roche")
+dev.off()
+```
+
+```{r, fig.height= 5.1, fig.width=2.5}
+US_R_Diaz <- MultipleTwoGroupAnalysis(US_R_Diaz, US_R_Diaz$meta$Dosage)
+
+PlotTransitionsStats(US_R_Diaz, analysis = c("0-vs-1", "0-vs-2", "0-vs-3") , labels = "kmeans.25.Roche")
+
+pdf("../Plots_NEWANALYSES/Figure6_Roche_Diazepam_kmeans25_BFA.pdf", height = 5.1, width = 2.5)
+PlotTransitionsStats(US_R_Diaz, analysis = c("0-vs-1", "0-vs-2", "0-vs-3") , labels = "kmeans.25.Roche")
+dev.off()
+```
+
+2D embedding:
+
+```{r, fig.width= 7.1, fig.height=4}
+US_R <- CalculateStabilizedTransitions(US_R, group = "Group",control = "Veh", subset =US_R$file_names[US_R$meta$Experiment == "Yohimbine"])
+US_R <- CalculateStabilizedTransitions(US_R, group = "Group",control = "Veh", subset =US_R$file_names[US_R$meta$Experiment == "Diazepam"])
+
+Plot2DEmbedding(US_R,transitionmatrices_stabilized = "kmeans.25.Roche", colorby = "Group2", plot.sem = T, colors = c("#B3E8B0","#008000","#003300", "grey","#F2DAF2","#A923A3","#660066"))
+
+pdf("../Plots_NEWANALYSES/Figure6_Roche_kmeans25_2Dembedding.pdf", height = 4, width = 7.1)
+Plot2DEmbedding(US_R,transitionmatrices_stabilized = "kmeans.25.Roche", colorby = "Group2", plot.sem = T, colors = c("#B3E8B0","#008000","#003300", "grey","#F2DAF2","#A923A3","#660066"))
+dev.off()
+```
