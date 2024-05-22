@@ -6,6 +6,12 @@ Code package for all BehaviorFlow functions, including BFA, BFL and BFF. This fi
 **DLCAnalyzer.R** <br>
 An updated version of the DLCAnalyzer (see Tutorial) package, replacing the "DLCAnalyzer_Functions_v4.R". We recommend to use this file for any DLCAnalyzer analyses going forward since it is more integrated with the downstream applications in the BehaviorFlow package.
 
+**VAME_Clustering_AllData.Rmd** <br>
+Script containing the code to train a cluster classifier imitating the clustering produced by VAME on 5 datasets (CSI, AS, yohimbine, CRS, DREADD). Important for Suppl. Figure 5.
+
+**VAME_Analysis_25Clusters.Rmd** <br>
+Follow up script of the previous one, containing all analysis steps for the VAME clustering of several datasets. Findings are shown in Suppl. Figure 5.
+
 **MBTY_Clustering.Rmd** <br>
 Script containing the code used to cluster the marble burying test recordings after yohimbine injections (MBTY). The results of this are shown in the updated Figure 6.
 
