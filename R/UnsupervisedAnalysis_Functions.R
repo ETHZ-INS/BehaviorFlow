@@ -1148,7 +1148,12 @@ TwoGroupAnalysis <- function(us,group, name = NULL, n_bootstraps = 1000, lab = N
     for(i in names(Report)){
       a <- Report[group == unique(group)[1],i]
       b <- Report[group == unique(group)[2],i]
-      nline <- data.frame(i, t.test(a,b)$p.value, mean(a), mean(b), mean(a) / mean(b))
+      tryCatch({
+        test <- t.test(a,b)
+        nline <- data.frame(i, t.test(a,b)$p.value, mean(a), mean(b), mean(a) / mean(b))
+      }, error = function(e){
+        nline <- data.frame(i, NA, mean(a), mean(b), mean(a) / mean(b))
+      })
       names(nline) <- c("name","p",unique(group)[1], unique(group)[2], "FC")
       res <- rbind(res,nline)
     }
